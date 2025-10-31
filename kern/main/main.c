@@ -133,6 +133,12 @@ boot(void)
 
 	kheap_nextgeneration();
 
+	#if OPT_SHELL
+	kprintf("Starting user shell...\n");
+	#else
+	kprintf("Starting user program...\n");
+	#endif
+
 	/*
 	 * Make sure various things aren't screwed up.
 	 */

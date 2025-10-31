@@ -59,4 +59,16 @@ __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
 int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 
+int sys_write(int fd, userptr_t buf_ptr, size_t size);
+int sys_read(int fd, userptr_t buf_ptr, size_t size);
+void sys__exit(int status);
+pid_t sys_getpid(void);
+int sys_fork(struct trapframe *ctf, pid_t *retval);
+int sys_execv(userptr_t progname, userptr_t args);
+int sys_waitpid(pid_t pid, userptr_t statusp, int flags);
+int sys_open(userptr_t path, int openflags, mode_t mode, int *errp);
+int sys_close(int fd);
+
+void openfile_bootstrap(void);
+
 #endif /* _SYSCALL_H_ */
