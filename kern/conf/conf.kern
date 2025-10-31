@@ -441,3 +441,8 @@ file		test/semunit.c
 file		test/kmalloctest.c
 file		test/fstest.c
 optfile net	test/nettest.c
+
+
+defoption shell
+optfile shell syscall/file_syscalls.c
+optfile shell syscall/proc_syscalls.c
