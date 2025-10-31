@@ -115,6 +115,12 @@ boot(void)
 
 	/* Probe and initialize devices. Interrupts should come on. */
 	kprintf("Device probe...\n");
+	#if OPT_SHELL
+	kprintf("OPT_SHELL is enabled\n");
+	#else
+	kprintf("OPT_SHELL is disabled\n");
+	#endif
+	
 	KASSERT(curthread->t_curspl > 0);
 	mainbus_bootstrap();
 	KASSERT(curthread->t_curspl == 0);
@@ -132,13 +138,6 @@ boot(void)
 	vfs_setbootfs("emu0");
 
 	kheap_nextgeneration();
-
-	#if OPT_SHELL
-	kprintf("Starting user shell...\n");
-	#else
-	kprintf("Starting user program...\n");
-	#endif
-
 	/*
 	 * Make sure various things aren't screwed up.
 	 */
