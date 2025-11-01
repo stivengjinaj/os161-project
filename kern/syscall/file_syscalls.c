@@ -30,39 +30,126 @@
 int
 sys_write(int fd, userptr_t buf_ptr, size_t size)
 {
-  int i;
-  char *p = (char *)buf_ptr;
+    struct proc *proc;
+    struct openfile *of;
+    struct iovec iov;
+    struct uio u;
+    int result;
 
-  if (fd!=STDOUT_FILENO && fd!=STDERR_FILENO) {
-    kprintf("sys_write supported only to stdout\n");
-    return -1;
-  }
+    /* Validation of file descriptor */
+    if (fd < 0 || fd >= OPEN_MAX) {
+        return -EBADF;
+    }
 
-  for (i=0; i<(int)size; i++) {
-    putch(p[i]);
-  }
+    /* Handle stdout/stderr for simplicity */
+    if (fd == STDOUT_FILENO || fd == STDERR_FILENO) {
+        char *p = (char *)buf_ptr;
+        for (int i = 0; i < (int)size; i++) {
+            putch(p[i]);
+        }
+        return (int)size;
+    }
 
-  return (int)size;
+    proc = curproc;
+    KASSERT(proc != NULL);
+
+    /* Get openfile structure */
+    of = proc->p_filetable[fd];
+    if (of == NULL) {
+        return -EBADF;
+    }
+
+    /* Check if file is open for writing */
+    if (of->mode == O_RDONLY) {
+        return -EBADF;
+    }
+
+    /* Acquire lock for thread-safe access */
+    lock_acquire(of->lock);
+
+    /* Set up uio structure for the write operation */
+    uio_kinit(&iov, &u, buf_ptr, size, of->offset, UIO_WRITE);
+    u.uio_segflg = UIO_USERSPACE;
+    u.uio_space = proc->p_addrspace;
+
+    /* Perform the write */
+    result = VOP_WRITE(of->vn, &u);
+    if (result) {
+        lock_release(of->lock);
+        return -result;
+    }
+
+    /* Update the file offset */
+    of->offset = u.uio_offset;
+
+    lock_release(of->lock);
+
+    /* Return the number of bytes written */
+    return size - u.uio_resid;
 }
 
 int
 sys_read(int fd, userptr_t buf_ptr, size_t size)
 {
-  int i;
-  char *p = (char *)buf_ptr;
+    struct proc *proc;
+    struct openfile *of;
+    struct iovec iov;
+    struct uio u;
+    int result;
 
-  if (fd!=STDIN_FILENO) {
-    kprintf("sys_read supported only to stdin\n");
-    return -1;
-  }
+    /* Validate file descriptor */
+    if (fd < 0 || fd >= OPEN_MAX) {
+        return -EBADF;
+    }
 
-  for (i=0; i<(int)size; i++) {
-    p[i] = getch();
-    if (p[i] < 0) 
-      return i;
-  }
+    /* Handle stdin specially for simplicity */
+    if (fd == STDIN_FILENO) {
+        char *p = (char *)buf_ptr;
+        for (int i = 0; i < (int)size; i++) {
+            p[i] = getch();
+            if (p[i] < 0) {
+                return i;
+            }
+        }
+        return (int)size;
+    }
 
-  return (int)size;
+    proc = curproc;
+    KASSERT(proc != NULL);
+
+    /* Get the openfile structure */
+    of = proc->p_filetable[fd];
+    if (of == NULL) {
+        return -EBADF;
+    }
+
+    /* Check if file is open for reading */
+    if (of->mode == O_WRONLY) {
+        return -EBADF;
+    }
+
+    /* Acquire lock for thread-safe access */
+    lock_acquire(of->lock);
+
+    /* Set up uio structure for the read operation */
+    uio_kinit(&iov, &u, buf_ptr, size, of->offset, UIO_READ);
+    u.uio_segflg = UIO_USERSPACE;
+    u.uio_space = proc->p_addrspace;
+
+    /* Perform the read */
+    result = VOP_READ(of->vn, &u);
+    if (result) {
+        lock_release(of->lock);
+        return -result;
+    }
+
+    /* Update the file offset */
+    of->offset = u.uio_offset;
+
+    lock_release(of->lock);
+
+    /* Return the number of bytes read */
+    return size - u.uio_resid;
 }
 
 int
