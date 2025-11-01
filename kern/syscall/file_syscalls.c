@@ -164,4 +164,45 @@ sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
 
     return 0;
 }
+
+int
+sys_close(int fd)
+{
+    struct proc *proc;
+    struct openfile *of;
+
+    /* Validate file descriptor */
+    if (fd < 0 || fd >= OPEN_MAX) {
+        return EBADF;
+    }
+
+    proc = curproc;
+    KASSERT(proc != NULL);
+
+    /* Check if file descriptor is open */
+    of = proc->p_filetable[fd];
+    if (of == NULL) {
+        return EBADF;
+    }
+
+    /* Remove from process file table */
+    proc->p_filetable[fd] = NULL;
+
+    /* Acquire lock and decrement reference count */
+    lock_acquire(of->lock);
+    KASSERT(of->count > 0);
+    of->count--;
+
+    /* If this was the last reference, clean up */
+    if (of->count == 0) {
+        vfs_close(of->vn);
+        lock_release(of->lock);
+        lock_destroy(of->lock);
+        kfree(of);
+    } else {
+        lock_release(of->lock);
+    }
+
+    return 0;
+}
 #endif

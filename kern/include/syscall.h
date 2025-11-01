@@ -63,6 +63,7 @@ int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 int sys_write(int fd, userptr_t buf_ptr, size_t size);
 int sys_read(int fd, userptr_t buf_ptr, size_t size);
 int sys_open(userptr_t filename, int flags, mode_t mode, int *retval);
+int sys_close(int fd);
 void sys__exit(int status);
 #endif
 
