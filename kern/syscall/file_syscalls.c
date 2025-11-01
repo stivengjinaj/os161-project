@@ -6,11 +6,24 @@
 
 #include <types.h>
 #include <kern/unistd.h>
-#include <clock.h>
+#include <kern/fcntl.h>
+#include <kern/errno.h>
 #include <copyinout.h>
+#include <vfs.h>
+#include <current.h>
+#include <proc.h>
+#include <openfile.h>
+#include <uio.h>
+#include <vnode.h>
 #include <syscall.h>
+#include <limits.h>
 #include <lib.h>
+#include <kern/seek.h>
+#include <kern/stat.h>
+#include <synch.h>
+#include <kern/limits.h>
 
+#if OPT_SHELL
 /*
  * simple file system calls for write/read
  */
@@ -51,3 +64,104 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
 
   return (int)size;
 }
+
+int
+sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
+{
+    char kpath[PATH_MAX];
+    struct vnode *vn;
+    struct openfile *of;
+    int fd;
+    int result;
+    size_t actual;
+
+    if (filename == NULL) {
+        return EFAULT;
+    }
+
+    result = copyinstr(filename, kpath, sizeof(kpath), &actual);
+    if (result) {
+        return result;
+    }
+
+    if (actual == 1) {
+        return EINVAL;
+    }
+
+    /* Check flag validity */
+    int accmode = flags & O_ACCMODE;
+    if (accmode != O_RDONLY && accmode != O_WRONLY && accmode != O_RDWR) {
+        return EINVAL;
+    }
+
+    /* Check for conflicting flags */
+    if ((flags & O_APPEND) && (accmode == O_RDONLY)) {
+        return EINVAL;
+    }
+
+    /* Open the file */
+    result = vfs_open(kpath, flags, mode, &vn);
+    if (result) {
+        return result;
+    }
+
+    /* Allocate openfile structure */
+    of = kmalloc(sizeof(struct openfile));
+    if (of == NULL) {
+        vfs_close(vn);
+        return ENOMEM;
+    }
+
+    /* Initialize openfile structure */
+    of->vn = vn;
+    of->mode = flags & O_ACCMODE;
+    of->count = 1;
+    of->offset = 0;
+
+    /* Create lock for the openfile */
+    of->lock = lock_create("openfile_lock");
+    if (of->lock == NULL) {
+        vfs_close(vn);
+        kfree(of);
+        return ENOMEM;
+    }
+
+    /* If O_APPEND flag is set, seek to end of file */
+    if (flags & O_APPEND) {
+        struct stat statbuf;
+        result = VOP_STAT(vn, &statbuf);
+        if (result) {
+            lock_destroy(of->lock);
+            vfs_close(vn);
+            kfree(of);
+            return result;
+        }
+        of->offset = statbuf.st_size;
+    }
+
+    /* Find an available file descriptor in the process's file table */
+    struct proc *proc = curproc;
+    KASSERT(proc != NULL);
+
+    /* Look for an empty slot in the file descriptor table */
+    fd = -1;
+    for (int i = 0; i < OPEN_MAX; i++) {
+        if (proc->p_filetable[i] == NULL) {
+            fd = i;
+            break;
+        }
+    }
+
+    if (fd == -1) {
+        lock_destroy(of->lock);
+        vfs_close(vn);
+        kfree(of);
+        return EMFILE;
+    }
+
+    proc->p_filetable[fd] = of;
+    *retval = fd;
+
+    return 0;
+}
+#endif

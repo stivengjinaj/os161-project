@@ -37,6 +37,9 @@
  */
 
 #include <spinlock.h>
+#include <openfile.h>
+#include <limits.h>
+#include <opt-shell.h>
 
 struct addrspace;
 struct thread;
@@ -69,6 +72,11 @@ struct proc {
 
 	/* VFS */
 	struct vnode *p_cwd;		/* current working directory */
+
+	#if OPT_SHELL
+	/* File descriptors table */
+	struct openfile *p_filetable[OPEN_MAX];
+	#endif
 
 	/* add more material here as needed */
 };
