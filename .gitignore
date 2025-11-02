@@ -1,2 +1,1 @@
-*
-!/src/kern/compile/SHELL
+src/kern/compile/SHELL
