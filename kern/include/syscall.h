@@ -66,6 +66,8 @@ int sys_open(userptr_t filename, int flags, mode_t mode, int *retval);
 int sys_close(int fd);
 int sys_lseek(int fd, off_t pos, int whence, off_t *retval);
 int sys_dup2(int oldfd, int newfd, int *retval);
+int sys_chdir(const char *path);
+int sys___getcwd(char *buf, size_t buflen, int *retval);
 void sys__exit(int status);
 #endif
 

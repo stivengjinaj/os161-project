@@ -455,4 +455,58 @@ int sys_dup2(int oldfd, int newfd, int32_t *retval)
 }
 
 
+int sys_chdir(const char *path){
+    
+    if (path == NULL) {
+        return EFAULT;
+    }
+
+    char kbuffer[PATH_MAX];
+    size_t len;
+
+    /* copy path from user space */
+    int err = copyinstr((const_userptr_t)path, kbuffer, PATH_MAX, &len);
+    if (err) {
+        return err;
+    }
+
+    /* let VFS handle the directory change */
+    err = vfs_chdir(kbuffer);
+    return err;
+}
+
+
+int sys___getcwd(char *buf, size_t buflen, int *retval){
+
+    if (buf == NULL) {
+        return EFAULT;
+    }
+
+    /* check if the size of the buffer is valid */
+    if (buflen == 0) {
+        return EINVAL;
+    }
+
+    /* check that buf points to valid user memory */
+    int result = copyin((const_userptr_t)buf, buf, 1);
+    if (result) return result;
+
+    struct iovec iov;
+    struct uio u;
+
+    /* setup uio to write path directly to user buffer */
+    uio_uinit(&iov, &u, buf, buflen, 0, UIO_READ);
+
+    /* get current working directory from VFS */
+    result = vfs_getcwd(&u);   
+    if (result) {
+        return result;
+    }
+
+    /* return number of bytes written (not null-terminated) */
+    *retval = (int)(buflen - u.uio_resid);
+    return 0;
+    
+}
+
 #endif

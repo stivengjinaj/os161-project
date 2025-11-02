@@ -126,15 +126,15 @@ syscall(struct trapframe *tf)
 			break;
 
         case SYS_open:
-        err = sys_open((userptr_t)tf->tf_a0,
-                   (int)tf->tf_a1,
-                   (mode_t)tf->tf_a2,
-                   &retval);
-        break;
+			err = sys_open((userptr_t)tf->tf_a0,
+					(int)tf->tf_a1,
+					(mode_t)tf->tf_a2,
+					&retval);
+			break;
 
         case SYS_close:
-        err = sys_close((int)tf->tf_a0);
-        break;
+			err = sys_close((int)tf->tf_a0);
+			break;
 		
 		case SYS_lseek: {
             off_t pos;
@@ -165,15 +165,24 @@ syscall(struct trapframe *tf)
 
 
 		case SYS_dup2:
-        err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
-        break;
+			err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
+			break;
 
+		case SYS_chdir:
+			err = sys_chdir((const char *)tf->tf_a0);
+			break;
+
+		case SYS___getcwd:
+			err = sys___getcwd((char *)tf->tf_a0, 
+							(size_t)tf->tf_a1, 
+							&retval);
+			break;
 
         case SYS__exit:
-        sys__exit((int)tf->tf_a0);
-        /* sys__exit does not return */
-        panic("sys__exit returned\n");
-        break;
+			sys__exit((int)tf->tf_a0);
+			/* sys__exit does not return */
+			panic("sys__exit returned\n");
+			break;
 #endif
 
 	    default:

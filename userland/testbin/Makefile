@@ -19,6 +19,8 @@ SUBDIRS+=test_write
 SUBDIRS+=test_close
 SUBDIRS+=test_dup2
 SUBDIRS+=test_lseek
+SUBDIRS+=test_chdir
+SUBDIRS+=test__getcwd
 
 # But not:
 #    userthreads    (no support in kernel API in base system)
