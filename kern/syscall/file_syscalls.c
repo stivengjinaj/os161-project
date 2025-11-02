@@ -332,7 +332,7 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
     }
 
     /* Get openfile structure */
-    struct openfile *of = curproc->p_filetable[fd];
+    struct openfile *of = curproc->fileTable[fd];
     if (of == NULL) {
         return EBADF;
     }
@@ -468,7 +468,7 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
     }
 
     /* Get openfile structure */
-    struct openfile *of = curproc->p_filetable[fd];
+    struct openfile *of = curproc->fileTable[fd];
     if (of == NULL) {
         return EBADF;
     }
