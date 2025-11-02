@@ -111,25 +111,17 @@ syscall(struct trapframe *tf)
 
 #if OPT_SHELL
         case SYS_write:
-        /*err = sys_write((int)tf->tf_a0,
+        err = sys_write((int)tf->tf_a0,
                 (userptr_t)tf->tf_a1,
-                (size_t)tf->tf_a2);*/
-		err = sys_write((int)tf->tf_a0,
-				   (const void *)tf->tf_a1,
-				   (size_t)tf->tf_a2,
-				   &retval);
+                (size_t)tf->tf_a2);
         retval = err;
         err = 0;
         break;
 
         case SYS_read:
-        /*err = sys_read((int)tf->tf_a0,
+        err = sys_read((int)tf->tf_a0,
                    (userptr_t)tf->tf_a1,
-                   (size_t)tf->tf_a2);*/
-		err = sys_read((int)tf->tf_a0,
-				   (const void *)tf->tf_a1,
-				   (size_t)tf->tf_a2,
-				   &retval);
+                   (size_t)tf->tf_a2);
         retval = err;
         err = 0;
         break;
@@ -144,7 +136,6 @@ syscall(struct trapframe *tf)
         case SYS_close:
         err = sys_close((int)tf->tf_a0);
         break;
-
 		case SYS_lseek: {
             off_t pos;
             off_t retval64;
@@ -171,6 +162,12 @@ syscall(struct trapframe *tf)
             }
             break;
         }
+
+
+		case SYS_dup2:
+        err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
+        break;
+
 
         case SYS__exit:
         sys__exit((int)tf->tf_a0);

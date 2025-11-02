@@ -17,6 +17,7 @@ SUBDIRS+=test_open
 SUBDIRS+=test_read
 SUBDIRS+=test_write
 SUBDIRS+=test_close
+SUBDIRS+=test_dup2
 
 # But not:
 #    userthreads    (no support in kernel API in base system)
