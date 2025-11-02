@@ -64,6 +64,7 @@ int sys_write(int fd, userptr_t buf_ptr, size_t size);
 int sys_read(int fd, userptr_t buf_ptr, size_t size);
 int sys_open(userptr_t filename, int flags, mode_t mode, int *retval);
 int sys_close(int fd);
+int sys_dup2(int oldfd, int newfd, int *retval);
 void sys__exit(int status);
 #endif
 

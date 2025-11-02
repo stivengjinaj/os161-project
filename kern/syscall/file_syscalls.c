@@ -75,7 +75,7 @@ sys_write(int fd, userptr_t buf_ptr, size_t size)
     KASSERT(proc != NULL);
 
     /* Get openfile structure */
-    of = proc->p_filetable[fd];
+    of = proc->fileTable[fd];
     if (of == NULL) {
         return EBADF;
     }
@@ -150,7 +150,7 @@ sys_read(int fd, userptr_t buf_ptr, size_t size)
     KASSERT(proc != NULL);
 
     /* Get the openfile structure */
-    of = proc->p_filetable[fd];
+    of = proc->fileTable[fd];
     if (of == NULL) {
         /* Handle stdin specially if not in file table */
         if (fd == STDIN_FILENO) {
@@ -309,7 +309,7 @@ sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
     /* Look for an empty slot in the file descriptor table */
     fd = -1;
     for (int i = 0; i < OPEN_MAX; i++) {
-        if (proc->p_filetable[i] == NULL) {
+        if (proc->fileTable[i] == NULL) {
             fd = i;
             break;
         }
@@ -322,7 +322,7 @@ sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
         return EMFILE;
     }
 
-    proc->p_filetable[fd] = of;
+    proc->fileTable[fd] = of;
     *retval = fd;
 
     return 0;
@@ -331,41 +331,69 @@ sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
 int
 sys_close(int fd)
 {
-    struct proc *proc;
-    struct openfile *of;
+    if (fd < 0 || fd >= OPEN_MAX) return EBADF;
 
-    /* Validate file descriptor */
-    if (fd < 0 || fd >= OPEN_MAX) {
-        return EBADF;
-    }
+    struct proc *p = curproc;
+    struct openfile *of = p->fileTable[fd];
+    if (of == NULL) return EBADF;
 
-    proc = curproc;
-    KASSERT(proc != NULL);
+    p->fileTable[fd] = NULL;
 
-    /* Check if file descriptor is open */
-    of = proc->p_filetable[fd];
-    if (of == NULL) {
-        return EBADF;
-    }
-
-    /* Remove from process file table */
-    proc->p_filetable[fd] = NULL;
-
-    /* Acquire lock and decrement reference count */
     lock_acquire(of->lock);
     KASSERT(of->count > 0);
     of->count--;
+    bool last = (of->count == 0);
+    lock_release(of->lock);
 
-    /* If this was the last reference, clean up */
-    if (of->count == 0) {
+    if (last) {
         vfs_close(of->vn);
-        lock_release(of->lock);
         lock_destroy(of->lock);
         kfree(of);
-    } else {
+    }
+    return 0;
+}
+
+int sys_dup2(int oldfd, int newfd, int32_t *retval)
+{
+    /* check validity of oldfd and newfd */
+    if (oldfd < 0 || oldfd >= OPEN_MAX || newfd < 0 || newfd >= OPEN_MAX)
+        return EBADF;
+
+    /* check if oldfd is open */
+    if (curproc->fileTable[oldfd] == NULL)
+        return EBADF;
+
+    /* special case:if oldfd is the same as newfd, do nothing */
+    if (oldfd == newfd)
+    {
+        *retval = newfd;
+        return 0;
+    }
+
+    /* special case: newfd is already open, close it before reusing it */
+    if (curproc->fileTable[newfd] != NULL)
+    {
+        struct openfile *of = curproc->fileTable[newfd];
+        lock_acquire(of->lock);
+        curproc->fileTable[newfd] = NULL;
+        if (--of->count == 0)
+        {
+            struct vnode *vn = of->vn;
+            of->vn = NULL;
+            vfs_close(vn);
+        }
         lock_release(of->lock);
     }
 
+    /* duplicate the fd: point newfd to the same file object as oldfd
+    increase the reference count for the file object */
+    lock_acquire(curproc->fileTable[oldfd]->lock);
+    curproc->fileTable[newfd] = curproc->fileTable[oldfd];
+    curproc->fileTable[newfd]->count++;
+    lock_release(curproc->fileTable[oldfd]->lock);
+
+    *retval = newfd;
     return 0;
 }
+
 #endif

@@ -48,13 +48,96 @@
 #include <current.h>
 #include <addrspace.h>
 #include <vnode.h>
-#include <synch.h>
+#include <limits.h>
 #include <vfs.h>
+#include <synch.h>
+#include "openfile.h"
+#include "opt-shell.h"
+#include <kern/unistd.h>
+#include <kern/fcntl.h>
 
 /*
  * The process for the kernel; this holds all the kernel-only threads.
  */
 struct proc *kproc;
+
+#if OPT_SHELL
+
+static struct process_table processTable;
+
+/*
+ * Initialize the process table.
+ */
+void process_table_init(void) {
+    spinlock_init(&processTable.lock);
+    processTable.proc[0] = kproc;  /* Kernel process */
+	kproc->p_pid = 0;
+    for (int i = 1; i <= PROC_MAX; i++) {
+        processTable.proc[i] = NULL;
+    }
+    processTable.last_pid = 0;
+    processTable.active = true;
+}
+
+/*
+ * Add a process to the process table.
+ */
+int proc_add(pid_t pid, struct proc *proc) {
+    if (pid <= 0 || pid > PROC_MAX || proc == NULL) {
+        return -1;
+    }
+
+    spinlock_acquire(&processTable.lock);
+    processTable.proc[pid] = proc;
+    spinlock_release(&processTable.lock);
+	/* PROCESS STATUS INITIALIZATION */
+	proc->p_exited = false;
+
+	/*SETTING FATHER PID AS -1*/
+	/*FOR THE FIRST PROCESS IT WILL NOT BE CHANGED*/
+	proc->parent_pid=-1;
+
+	/* PROCESS CV AND LOCK INITIALIZATION */
+	proc->p_cv = cv_create("proc_cv");
+  	proc->p_locklock = lock_create("proc_locklock");
+	if (proc->p_cv == NULL || proc->p_locklock == NULL) {
+		return -1;
+	}
+
+	/* TASK COMPLETED SUCCESSFULLY */
+	return proc->p_pid;
+}
+
+/*
+ * Remove a process from the process table.
+ */
+void proc_remove(pid_t pid) {
+    if (pid <= 0 || pid > PROC_MAX) {
+        return;
+    }
+
+    spinlock_acquire(&processTable.lock);
+	cv_destroy(processTable.proc[pid]->p_cv);
+  	lock_destroy(processTable.proc[pid]->p_locklock);
+    processTable.proc[pid] = NULL;
+    spinlock_release(&processTable.lock);
+}
+
+/*
+ * Retrieve a process from the process table by PID.
+ */
+struct proc *proc_search(pid_t pid) {
+    if (pid <= 0 || pid > PROC_MAX) {
+        return NULL;
+    }
+
+    spinlock_acquire(&processTable.lock);
+    struct proc *proc = processTable.proc[pid];
+    spinlock_release(&processTable.lock);
+    return proc;
+}
+
+#endif /* OPT_SHELL */
 
 /*
  * Create a proc structure.
