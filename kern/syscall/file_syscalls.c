@@ -368,4 +368,97 @@ sys_close(int fd)
 
     return 0;
 }
+
+int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
+
+    /* Validate process */
+    KASSERT(curproc != NULL);
+
+    /* Validate file descriptor */
+    if (fd < 0 || fd >= OPEN_MAX) {
+        return EBADF;
+    }
+
+    /* Get openfile structure */
+    struct openfile *of = curproc->p_filetable[fd];
+    if (of == NULL) {
+        return EBADF;
+    }
+
+    /* Check if file is seekable */
+    if (!VOP_ISSEEKABLE(of->vn)){
+        return ESPIPE;
+    }
+
+    int err;
+    off_t new_offset;
+    int result;
+    struct stat statbuf;
+    
+
+    /* Acquire lock for thread-safe access */
+    lock_acquire(of->lock);
+    retval = of->offset;
+
+    /* Calculate new offset based on whence */
+    switch (whence) {
+        case SEEK_SET:
+            /* Set to absolute position */
+            if (pos < 0) {
+                lock_release(of->lock);
+                return EINVAL;
+            }
+            new_offset = pos;
+            break;
+
+        case SEEK_CUR:
+            /* Set relative to current position */
+            /* Check if pos is negative and would make offset negative */
+            if (pos < 0 && -pos > of->offset) {
+                lock_release(of->lock);
+                return EINVAL;
+            }
+            new_offset = of->offset + pos;
+            break;
+
+        case SEEK_END:
+            /* Get file size */
+            result = VOP_STAT(of->vn, &statbuf);
+            if (result) {
+                lock_release(of->lock);
+                return result;
+            }
+            /* Check if pos is negative and would make offset negative */
+            if (pos < 0 && -pos > statbuf.st_size) {
+                lock_release(of->lock);
+                return EINVAL;
+            }
+            new_offset = statbuf.st_size + pos;
+            break;
+
+        default:
+            /* Invalid whence value */
+            lock_release(of->lock);
+            return EINVAL;
+    }
+
+
+    /* Check if resulting position is negative */
+    if (new_offset < 0) {
+        lock_release(of->lock);
+        return EINVAL;
+    }
+
+    /* Update the file offset */
+    of->offset = new_offset;
+
+    /* Return the new position */
+    *retval = new_offset;
+
+    lock_release(of->lock);
+
+    return 0;
+
+}
+
 #endif
