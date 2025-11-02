@@ -342,7 +342,6 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
         return ESPIPE;
     }
 
-    int err;
     off_t new_offset;
     int result;
     struct stat statbuf;
@@ -350,7 +349,6 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
 
     /* Acquire lock for thread-safe access */
     lock_acquire(of->lock);
-    retval = of->offset;
 
     /* Calculate new offset based on whence */
     switch (whence) {
