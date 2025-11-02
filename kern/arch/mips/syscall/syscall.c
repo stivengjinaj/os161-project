@@ -135,10 +135,39 @@ syscall(struct trapframe *tf)
         case SYS_close:
         err = sys_close((int)tf->tf_a0);
         break;
+		
+		case SYS_lseek: {
+            off_t pos;
+            off_t retval64;
+            int whence;
+            int result;
+            
+            /* Reconstruct 64-bit pos from a2 (high) and a3 (low) */
+            pos = (((off_t)tf->tf_a2) << 32) | tf->tf_a3;
+            
+            /* Get whence from user stack at sp+16 */
+            result = copyin((userptr_t)(tf->tf_sp + 16), &whence, sizeof(int));
+            if (result) {
+                err = result;
+                break;
+            }
+            
+            /* Call sys_lseek */
+            err = sys_lseek((int)tf->tf_a0, pos, whence, &retval64);
+            
+            /* Return 64-bit value in v0 (low) and v1 (high) */
+            if (!err) {
+                tf->tf_v0 = (int32_t)(retval64 & 0xFFFFFFFF);  /* low 32 bits */
+                tf->tf_v1 = (int32_t)(retval64 >> 32);         /* high 32 bits */
+            }
+            break;
+        }
+
 
 		case SYS_dup2:
         err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
         break;
+
 
         case SYS__exit:
         sys__exit((int)tf->tf_a0);
