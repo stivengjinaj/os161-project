@@ -264,7 +264,7 @@ int
 main(void)
 {
     printf("========================================\n");
-    printf("      Read System Call Test Suite\n");
+    printf("      Read System Call Tests\n");
     printf("========================================\n\n");
     
     test_read_file();
