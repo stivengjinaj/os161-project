@@ -27,329 +27,296 @@
 /*
  * simple file system calls for write/read
  */
-int
-sys_write(int fd, userptr_t buf_ptr, size_t size)
+ssize_t sys_write(int fd, const void *buf, size_t buflen, int32_t *retval)
 {
-    struct proc *proc;
-    struct openfile *of;
+    /* CHECKING FILE DESCRIPTOR */
+    if (fd < 0 || fd >= OPEN_MAX)
+        return EBADF;
+
+    /* CHECKING CURPROC AND FILETABLE */
+    if (curproc == NULL || curproc->fileTable == NULL)
+        return EFAULT;
+
+    /* CHECKING FILE DESCRIPTOR VALIDITY */
+    if (curproc->fileTable[fd] == NULL)
+        return EBADF;
+
+    struct openfile *of = curproc->fileTable[fd];
+
+    /* ENSURE THE FILE IS NOT READ-ONLY */
+    if ((of->mode & O_ACCMODE) == O_RDONLY)
+        return EBADF; /* FILE IS NOT OPEN FOR WRITING */
+
+    if (buf == NULL)
+        return EFAULT; /* INVALID BUFFER POINTER */
+
+    /* ALLOCATING KERNEL BUFFER */
+    char *kbuffer = (char *)kmalloc(buflen);
+    if (kbuffer == NULL)
+        return ENOMEM;
+
+    /* COPYING DATA FROM USER SPACE TO KERNEL SPACE */
+    int err = copyin((const_userptr_t)buf, kbuffer, buflen);
+    if (err)
+    {
+        kfree(kbuffer);
+        return EFAULT;
+    }
+
+    /* WRITING DATA TO FILE */
     struct iovec iov;
     struct uio kuio;
-    int result;
-    char *kbuf;
+    struct vnode *vn = of->vn;
 
-    /* Validate file descriptor */
-    if (fd < 0 || fd >= OPEN_MAX) {
-        return EBADF;
-    }
-
-    /* Validate buffer pointer */
-    if (buf_ptr == NULL) {
-        return EFAULT;
-    }
-
-    /* Handle stdout/stderr specially */
-    if (fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-        /* Allocate kernel buffer */
-        kbuf = kmalloc(size);
-        if (kbuf == NULL) {
-            return ENOMEM;
-        }
-        
-        /* Copy from user space to kernel space */
-        result = copyin(buf_ptr, kbuf, size);
-        if (result) {
-            kfree(kbuf);
-            return result;
-        }
-        
-        /* Write to console */
-        for (size_t i = 0; i < size; i++) {
-            putch(kbuf[i]);
-        }
-        
-        kfree(kbuf);
-        return size;
-    }
-
-    proc = curproc;
-    KASSERT(proc != NULL);
-
-    /* Get openfile structure */
-    of = proc->fileTable[fd];
-    if (of == NULL) {
-        return EBADF;
-    }
-
-    /* Check if file is open for writing */
-    if ((of->mode & O_ACCMODE) == O_RDONLY) {
-        return EBADF;
-    }
-
-    /* Allocate kernel buffer */
-    kbuf = kmalloc(size);
-    if (kbuf == NULL) {
-        return ENOMEM;
-    }
-
-    /* Copy data from user space to kernel space */
-    result = copyin(buf_ptr, kbuf, size);
-    if (result) {
-        kfree(kbuf);
-        return result;
-    }
-
-    /* Acquire lock for thread-safe access */
     lock_acquire(of->lock);
 
-    /* Set up uio structure for the write operation */
-    uio_kinit(&iov, &kuio, kbuf, size, of->offset, UIO_WRITE);
+    uio_kinit(&iov, &kuio, kbuffer, buflen, of->offset, UIO_WRITE);
+    err = VOP_WRITE(vn, &kuio);
 
-    /* Perform the write */
-    result = VOP_WRITE(of->vn, &kuio);
-    if (result) {
+    /* NO FREE SPACE REMAINING ON THE FILESYSTEM */
+    if (err == ENOSPC)
+    {
         lock_release(of->lock);
-        kfree(kbuf);
-        return result;
+        kfree(kbuffer);
+        return ENOSPC;
+    }
+    /* HARDWARE I/O ERROR OCCURRED */
+    if (err == EIO)
+    {
+        lock_release(of->lock);
+        kfree(kbuffer);
+        return EIO; 
+    }
+    if (err)
+    {
+        lock_release(of->lock);
+        kfree(kbuffer);
+        return err; /* ERROR DURING FILE WRITE */
     }
 
-    /* Update the file offset */
+    /* UPDATING OFFSET AND RETURN VALUE */
+    off_t nbytes = kuio.uio_offset - of->offset;
+    *retval = (int32_t)nbytes;
     of->offset = kuio.uio_offset;
 
+    /* RELEASE LOCK AND FREE KERNEL BUFFER */
     lock_release(of->lock);
-
-    /* Calculate bytes written */
-    int bytes_written = size - kuio.uio_resid;
-    
-    kfree(kbuf);
-
-    /* Return the number of bytes written */
-    return bytes_written;
-}
-
-int
-sys_read(int fd, userptr_t buf_ptr, size_t size)
-{
-    struct proc *proc;
-    struct openfile *of;
-    struct iovec iov;
-    struct uio kuio;
-    int result;
-    char *kbuf;
-
-    /* Validate file descriptor */
-    if (fd < 0 || fd >= OPEN_MAX) {
-        return EBADF;
-    }
-
-    /* Validate buffer pointer */
-    if (buf_ptr == NULL) {
-        return EFAULT;
-    }
-
-    proc = curproc;
-    KASSERT(proc != NULL);
-
-    /* Get the openfile structure */
-    of = proc->fileTable[fd];
-    if (of == NULL) {
-        /* Handle stdin specially if not in file table */
-        if (fd == STDIN_FILENO) {
-            kbuf = kmalloc(size);
-            if (kbuf == NULL) {
-                return ENOMEM;
-            }
-            
-            for (size_t i = 0; i < size; i++) {
-                int ch = getch();
-                if (ch < 0) {
-                    result = copyout(kbuf, buf_ptr, i);
-                    kfree(kbuf);
-                    if (result) {
-                        return result;
-                    }
-                    return i;
-                }
-                kbuf[i] = ch;
-            }
-            
-            result = copyout(kbuf, buf_ptr, size);
-            kfree(kbuf);
-            if (result) {
-                return result;
-            }
-            return size;
-        }
-        return EBADF;
-    }
-
-    /* Check if file is open for reading */
-    if ((of->mode & O_ACCMODE) == O_WRONLY) {
-        return EBADF;
-    }
-
-    /* Allocate kernel buffer */
-    kbuf = kmalloc(size);
-    if (kbuf == NULL) {
-        return ENOMEM;
-    }
-
-    /* Acquire lock for thread-safe access */
-    lock_acquire(of->lock);
-
-    /* Set up uio structure for the read operation */
-    uio_kinit(&iov, &kuio, kbuf, size, of->offset, UIO_READ);
-
-    /* Perform the read */
-    result = VOP_READ(of->vn, &kuio);
-    if (result) {
-        lock_release(of->lock);
-        kfree(kbuf);
-        return result;
-    }
-
-    /* Update the file offset */
-    of->offset = kuio.uio_offset;
-
-    /* Calculate bytes read */
-    int bytes_read = size - kuio.uio_resid;
-
-    lock_release(of->lock);
-
-    /* Copy data to user space */
-    result = copyout(kbuf, buf_ptr, bytes_read);
-    if (result) {
-        kfree(kbuf);
-        return result;
-    }
-
-    kfree(kbuf);
-
-    /* Return the number of bytes read */
-    return bytes_read;
-}
-
-int
-sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
-{
-    char kpath[PATH_MAX];
-    struct vnode *vn;
-    struct openfile *of;
-    int fd;
-    int result;
-    size_t actual;
-
-    if (filename == NULL) {
-        return EFAULT;
-    }
-
-    result = copyinstr(filename, kpath, sizeof(kpath), &actual);
-    if (result) {
-        return result;
-    }
-
-    if (actual == 1) {
-        return EINVAL;
-    }
-
-    /* Check flag validity */
-    int accmode = flags & O_ACCMODE;
-    if (accmode != O_RDONLY && accmode != O_WRONLY && accmode != O_RDWR) {
-        return EINVAL;
-    }
-
-    /* Check for conflicting flags */
-    if ((flags & O_APPEND) && (accmode == O_RDONLY)) {
-        return EINVAL;
-    }
-
-    /* Open the file */
-    result = vfs_open(kpath, flags, mode, &vn);
-    if (result) {
-        return result;
-    }
-
-    /* Allocate openfile structure */
-    of = kmalloc(sizeof(struct openfile));
-    if (of == NULL) {
-        vfs_close(vn);
-        return ENOMEM;
-    }
-
-    /* Initialize openfile structure */
-    of->vn = vn;
-    of->mode = flags & O_ACCMODE;
-    of->count = 1;
-    of->offset = 0;
-
-    /* Create lock for the openfile */
-    of->lock = lock_create("openfile_lock");
-    if (of->lock == NULL) {
-        vfs_close(vn);
-        kfree(of);
-        return ENOMEM;
-    }
-
-    /* If O_APPEND flag is set, seek to end of file */
-    if (flags & O_APPEND) {
-        struct stat statbuf;
-        result = VOP_STAT(vn, &statbuf);
-        if (result) {
-            lock_destroy(of->lock);
-            vfs_close(vn);
-            kfree(of);
-            return result;
-        }
-        of->offset = statbuf.st_size;
-    }
-
-    /* Find an available file descriptor in the process's file table */
-    struct proc *proc = curproc;
-    KASSERT(proc != NULL);
-
-    /* Look for an empty slot in the file descriptor table */
-    fd = -1;
-    for (int i = 0; i < OPEN_MAX; i++) {
-        if (proc->fileTable[i] == NULL) {
-            fd = i;
-            break;
-        }
-    }
-
-    if (fd == -1) {
-        lock_destroy(of->lock);
-        vfs_close(vn);
-        kfree(of);
-        return EMFILE;
-    }
-
-    proc->fileTable[fd] = of;
-    *retval = fd;
+    kfree(kbuffer);
 
     return 0;
 }
 
-int
-sys_close(int fd)
-{
-    if (fd < 0 || fd >= OPEN_MAX) return EBADF;
+ssize_t sys_read(int fd, const void *buf, size_t buflen, int32_t *retval) {
 
-    struct proc *p = curproc;
-    struct openfile *of = p->fileTable[fd];
-    if (of == NULL) return EBADF;
-
-    p->fileTable[fd] = NULL;
-
-    lock_acquire(of->lock);
-    KASSERT(of->count > 0);
-    of->count--;
-    bool last = (of->count == 0);
-    lock_release(of->lock);
-
-    if (last) {
-        vfs_close(of->vn);
-        lock_destroy(of->lock);
-        kfree(of);
+    /* VALIDATE FILE DESCRIPTOR */
+    if (fd < 0 || fd >= OPEN_MAX || curproc->fileTable[fd] == NULL || (curproc->fileTable[fd]->mode & O_ACCMODE) == O_WRONLY) {
+        return EBADF;
     }
+
+    /* VALIDATE BUFFER */
+    if (buf == NULL) {
+        return EFAULT;
+    }
+
+    /* ALLOCATE KERNEL BUFFER */
+    char *kbuf = kmalloc(buflen);
+    if (kbuf == NULL) {
+        return ENOMEM;
+    }
+
+    /* PREPARE FOR READING */
+    struct openfile *of = curproc->fileTable[fd];
+    struct iovec iov;
+    struct uio kuio;
+    uio_kinit(&iov, &kuio, kbuf, buflen, of->offset, UIO_READ);
+
+    /* PERFORM READ OPERATION */
+    lock_acquire(of->lock);
+    int result = VOP_READ(of->vn, &kuio);
+    if (result) {
+        lock_release(of->lock);
+        kfree(kbuf);
+        return result;
+    }
+
+    /* UPDATE OFFSET */
+    of->offset = kuio.uio_offset;
+    *retval = buflen - kuio.uio_resid;
+
+    /* COPY DATA TO USER BUFFER */
+    result = copyout(kbuf, (userptr_t)buf, *retval);
+    if (result) {
+        lock_release(of->lock);
+        kfree(kbuf);
+        return EFAULT;
+    }
+
+    /* CLEAN UP */
+    lock_release(of->lock);
+    kfree(kbuf);
+
+    return 0;
+}
+
+int sys_open(const char *pathname, int flags, mode_t mode, int *retval)
+{
+    /* CHECKING IF PATHNAME IS NULL */
+    if (pathname == NULL)
+        return EFAULT;
+
+    /* COPYING PATHNAME FROM USER SPACE TO KERNEL SPACE */
+    char *kbuffer = (char *)kmalloc(PATH_MAX * sizeof(char));
+    if (kbuffer == NULL)
+        return ENOMEM;
+
+    size_t len;
+    int err = copyinstr((const_userptr_t)pathname, kbuffer, PATH_MAX, &len); /* MAY RETURN EFAULT */
+    if (err)
+    {
+        kfree(kbuffer);
+        return EFAULT;
+    }
+
+    /* OPENING FILE */
+    struct vnode *v;
+    err = vfs_open(kbuffer, flags, mode, &v);
+    if (err)
+    {
+        kfree(kbuffer);
+        return err;
+    }
+    kfree(kbuffer);
+
+    /* FINDING A FREE POSITION IN THE SYSTEM FILE TABLE */
+    struct openfile *of = NULL;
+    for (int i = 3; i < OPEN_MAX; i++)
+    {
+        /* FINDING A FREE POSITION IN THE SYSTEM FILE TABLE */
+        if (curproc->fileTable[i] == NULL)
+        {
+            of = (struct openfile *)kmalloc(sizeof(struct openfile));
+            if (of == NULL)
+            {
+                vfs_close(v);
+                return ENOMEM;
+            }
+            of->vn = v;
+            of->offset = 0;
+            of->mode = flags;
+            of->count = 1;
+            of->lock = lock_create("FILE_LOCK");
+            if (of->lock == NULL)
+            {
+                vfs_close(v);
+                kfree(of);
+                return ENOMEM;
+            }
+            curproc->fileTable[i] = of;
+            *retval = i;
+            return 0;
+        }
+    }
+
+    /* SYSTEM FILE TABLE IS FULL */
+    int fd = 3; /* 0, 1, 2 ARE RESERVED FOR STDIN, STDOUT, STDERR */
+    if (of == NULL)
+        return ENFILE; /* SYSTEM FILE TABLE IS FULL */
+    else
+    {
+        for (; fd < OPEN_MAX; fd++)
+        {
+            if (curproc->fileTable[fd] == NULL)
+            {
+                curproc->fileTable[fd] = of;
+                break;
+            }
+        }
+
+        if (fd == OPEN_MAX - 1)
+            return EMFILE; /* PROCESS FILE TABLE IS FULL */
+    }
+
+    /* MANAGING OFFSET */
+    if (flags & O_APPEND)
+    {
+        /* READING FILE SIZE */
+        struct stat filestat;
+        err = VOP_STAT(curproc->fileTable[fd]->vn, &filestat);
+        if (err)
+        {
+            kfree(curproc->fileTable[fd]);
+            curproc->fileTable[fd] = NULL;
+            return err;
+        }
+        curproc->fileTable[fd]->offset = filestat.st_size;
+    }
+    else
+        /* SETTING OFFSET TO 0 */
+        curproc->fileTable[fd]->offset = 0;
+
+    /* MANAGING COUNT */
+    curproc->fileTable[fd]->count = 1;
+
+    /* MANAGING MODE */
+    switch (flags & O_ACCMODE)
+    {
+    case O_RDONLY:
+        curproc->fileTable[fd]->mode = O_RDONLY;
+        break;
+    case O_WRONLY:
+        curproc->fileTable[fd]->mode = O_WRONLY;
+        break;
+    case O_RDWR:
+        curproc->fileTable[fd]->mode = O_RDWR;
+        break;
+    default:
+        vfs_close(curproc->fileTable[fd]->vn);
+        kfree(curproc->fileTable[fd]);
+        curproc->fileTable[fd] = NULL;
+        return EINVAL;
+    }
+
+    /* CREATING LOCK */
+    curproc->fileTable[fd]->lock = lock_create("FILE_LOCK");
+    if (curproc->fileTable[fd]->lock == NULL)
+    {
+        vfs_close(curproc->fileTable[fd]->vn);
+        kfree(curproc->fileTable[fd]);
+        curproc->fileTable[fd] = NULL;
+        return ENOMEM;
+    }
+
+    *retval = fd;
+    return 0;
+}
+
+int sys_close(int fd)
+{
+    /* CHECK IF THE FILE DESCRIPTOR IS VALID */
+    if (fd < 0 || fd >= OPEN_MAX)
+        return EBADF;
+
+    /* CHECK IF THE FILE DESCRIPTOR IS IN USE */
+    if (curproc->fileTable[fd] == NULL)
+        return EBADF;
+
+    /* RETRIEVE THE OPEN FILE STRUCTURE */
+    struct openfile *of = curproc->fileTable[fd];
+    lock_acquire(of->lock);
+
+    /* REMOVE THE FILE DESCRIPTOR FROM THE PROCESS'S FILE TABLE */
+    curproc->fileTable[fd] = NULL;
+
+    /* DECREMENT THE REFERENCE COUNT */
+    if (--of->count == 0)
+    {
+        /* IF NO MORE REFERENCES, CLOSE THE VNODE */
+        struct vnode *vn = of->vn;
+        of->vn = NULL;
+        vfs_close(vn);
+    }
+
+    lock_release(of->lock);
     return 0;
 }
 

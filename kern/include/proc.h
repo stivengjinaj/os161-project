@@ -101,7 +101,6 @@ struct proc {
 	pid_t parent_pid;						/* Parent process ID */
 	struct lock *p_locklock;				/* Lock for this structure */	
 	#endif
-
 };
 
 /* This is the process structure for the kernel and for kernel-only threads. */

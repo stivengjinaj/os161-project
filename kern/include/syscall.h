@@ -60,8 +60,8 @@ __DEAD void enter_new_process(int argc, userptr_t argv, userptr_t env,
 int sys_reboot(int code);
 int sys___time(userptr_t user_seconds, userptr_t user_nanoseconds);
 #if OPT_SHELL 
-int sys_write(int fd, userptr_t buf_ptr, size_t size);
-int sys_read(int fd, userptr_t buf_ptr, size_t size);
+ssize_t sys_read(int fd, const void *buf, size_t buflen, int32_t *retval);
+ssize_t sys_write(int fd, const void *buf, size_t buflen, int32_t *retval);
 int sys_open(userptr_t filename, int flags, mode_t mode, int *retval);
 int sys_close(int fd);
 int sys_dup2(int oldfd, int newfd, int *retval);
