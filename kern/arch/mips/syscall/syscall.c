@@ -110,21 +110,20 @@ syscall(struct trapframe *tf)
 		break;
 
 #if OPT_SHELL
-        case SYS_write:
-        err = sys_write((int)tf->tf_a0,
-                (userptr_t)tf->tf_a1,
-                (size_t)tf->tf_a2);
-        retval = err;
-        err = 0;
-        break;
-
         case SYS_read:
-        err = sys_read((int)tf->tf_a0,
-                   (userptr_t)tf->tf_a1,
-                   (size_t)tf->tf_a2);
-        retval = err;
-        err = 0;
-        break;
+			err = sys_read(
+				(int)tf->tf_a0,
+				(void *)tf->tf_a1,
+				(size_t)tf->tf_a2,
+				&retval);
+			break;
+
+		case SYS_write:
+			err = sys_write((int)tf->tf_a0,
+							(userptr_t)tf->tf_a1,
+							(size_t)tf->tf_a2,
+							&retval);
+			break;
 
         case SYS_open:
         err = sys_open((userptr_t)tf->tf_a0,
@@ -140,7 +139,7 @@ syscall(struct trapframe *tf)
 		case SYS_dup2:
         err = sys_dup2((int)tf->tf_a0, (int)tf->tf_a1, &retval);
         break;
-		
+
         case SYS__exit:
         sys__exit((int)tf->tf_a0);
         /* sys__exit does not return */

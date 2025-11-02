@@ -158,10 +158,10 @@ ssize_t sys_read(int fd, const void *buf, size_t buflen, int32_t *retval) {
     return 0;
 }
 
-int sys_open(const char *pathname, int flags, mode_t mode, int *retval)
+int sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
 {
     /* CHECKING IF PATHNAME IS NULL */
-    if (pathname == NULL)
+    if (filename == NULL)
         return EFAULT;
 
     /* COPYING PATHNAME FROM USER SPACE TO KERNEL SPACE */
@@ -170,7 +170,7 @@ int sys_open(const char *pathname, int flags, mode_t mode, int *retval)
         return ENOMEM;
 
     size_t len;
-    int err = copyinstr((const_userptr_t)pathname, kbuffer, PATH_MAX, &len); /* MAY RETURN EFAULT */
+    int err = copyinstr((const_userptr_t)filename, kbuffer, PATH_MAX, &len); /* MAY RETURN EFAULT */
     if (err)
     {
         kfree(kbuffer);
