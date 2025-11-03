@@ -170,7 +170,7 @@ int sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
         return ENOMEM;
 
     size_t len;
-    int err = copyinstr((const_userptr_t)filename, kbuffer, PATH_MAX, &len); /* MAY RETURN EFAULT */
+    int err = copyinstr((const_userptr_t)filename, kbuffer, PATH_MAX, &len);
     if (err)
     {
         kfree(kbuffer);
@@ -187,105 +187,89 @@ int sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
     }
     kfree(kbuffer);
 
-    /* FINDING A FREE POSITION IN THE SYSTEM FILE TABLE */
-    struct openfile *of = NULL;
+    /* FIND A FREE FILE DESCRIPTOR (starting from 3, since 0-2 are std streams) */
+    int fd = -1;
     for (int i = 3; i < OPEN_MAX; i++)
     {
-        /* FINDING A FREE POSITION IN THE SYSTEM FILE TABLE */
         if (curproc->fileTable[i] == NULL)
         {
-            of = (struct openfile *)kmalloc(sizeof(struct openfile));
-            if (of == NULL)
-            {
-                vfs_close(v);
-                return ENOMEM;
-            }
-            of->vn = v;
-            of->offset = 0;
-            of->mode = flags;
-            of->count = 1;
-            of->lock = lock_create("FILE_LOCK");
-            if (of->lock == NULL)
-            {
-                vfs_close(v);
-                kfree(of);
-                return ENOMEM;
-            }
-            curproc->fileTable[i] = of;
-            *retval = i;
-            return 0;
+            fd = i;
+            break;
         }
     }
 
-    /* SYSTEM FILE TABLE IS FULL */
-    int fd = 3; /* 0, 1, 2 ARE RESERVED FOR STDIN, STDOUT, STDERR */
+    /* CHECK IF FILE TABLE IS FULL */
+    if (fd == -1)
+    {
+        vfs_close(v);
+        return EMFILE; /* TOO MANY OPEN FILES IN PROCESS */
+    }
+
+    /* CREATE NEW OPENFILE STRUCTURE */
+    struct openfile *of = (struct openfile *)kmalloc(sizeof(struct openfile));
     if (of == NULL)
-        return ENFILE; /* SYSTEM FILE TABLE IS FULL */
-    else
     {
-        for (; fd < OPEN_MAX; fd++)
-        {
-            if (curproc->fileTable[fd] == NULL)
-            {
-                curproc->fileTable[fd] = of;
-                break;
-            }
-        }
-
-        if (fd == OPEN_MAX - 1)
-            return EMFILE; /* PROCESS FILE TABLE IS FULL */
-    }
-
-    /* MANAGING OFFSET */
-    if (flags & O_APPEND)
-    {
-        /* READING FILE SIZE */
-        struct stat filestat;
-        err = VOP_STAT(curproc->fileTable[fd]->vn, &filestat);
-        if (err)
-        {
-            kfree(curproc->fileTable[fd]);
-            curproc->fileTable[fd] = NULL;
-            return err;
-        }
-        curproc->fileTable[fd]->offset = filestat.st_size;
-    }
-    else
-        /* SETTING OFFSET TO 0 */
-        curproc->fileTable[fd]->offset = 0;
-
-    /* MANAGING COUNT */
-    curproc->fileTable[fd]->count = 1;
-
-    /* MANAGING MODE */
-    switch (flags & O_ACCMODE)
-    {
-    case O_RDONLY:
-        curproc->fileTable[fd]->mode = O_RDONLY;
-        break;
-    case O_WRONLY:
-        curproc->fileTable[fd]->mode = O_WRONLY;
-        break;
-    case O_RDWR:
-        curproc->fileTable[fd]->mode = O_RDWR;
-        break;
-    default:
-        vfs_close(curproc->fileTable[fd]->vn);
-        kfree(curproc->fileTable[fd]);
-        curproc->fileTable[fd] = NULL;
-        return EINVAL;
-    }
-
-    /* CREATING LOCK */
-    curproc->fileTable[fd]->lock = lock_create("FILE_LOCK");
-    if (curproc->fileTable[fd]->lock == NULL)
-    {
-        vfs_close(curproc->fileTable[fd]->vn);
-        kfree(curproc->fileTable[fd]);
-        curproc->fileTable[fd] = NULL;
+        vfs_close(v);
         return ENOMEM;
     }
 
+    /* INITIALIZE THE OPENFILE STRUCTURE */
+    of->vn = v;
+    of->count = 1;
+
+    /* CREATE LOCK FOR THIS FILE */
+    of->lock = lock_create("FILE_LOCK");
+    if (of->lock == NULL)
+    {
+        vfs_close(v);
+        kfree(of);
+        return ENOMEM;
+    }
+
+    /* SET FILE MODE BASED ON FLAGS */
+    switch (flags & O_ACCMODE)
+    {
+    case O_RDONLY:
+        of->mode = O_RDONLY;
+        break;
+    case O_WRONLY:
+        of->mode = O_WRONLY;
+        break;
+    case O_RDWR:
+        of->mode = O_RDWR;
+        break;
+    default:
+        lock_destroy(of->lock);
+        vfs_close(v);
+        kfree(of);
+        return EINVAL;
+    }
+
+    /* SET OFFSET BASED ON FLAGS */
+    if (flags & O_APPEND)
+    {
+        /* SET OFFSET TO END OF FILE */
+        struct stat filestat;
+        err = VOP_STAT(v, &filestat);
+        if (err)
+        {
+            lock_destroy(of->lock);
+            vfs_close(v);
+            kfree(of);
+            return err;
+        }
+        of->offset = filestat.st_size;
+    }
+    else
+    {
+        /* SET OFFSET TO BEGINNING OF FILE */
+        of->offset = 0;
+    }
+
+    /* ADD TO PROCESS FILE TABLE */
+    curproc->fileTable[fd] = of;
+
+    /* RETURN FILE DESCRIPTOR */
     *retval = fd;
     return 0;
 }
@@ -314,6 +298,11 @@ int sys_close(int fd)
         struct vnode *vn = of->vn;
         of->vn = NULL;
         vfs_close(vn);
+        
+        lock_release(of->lock);
+        lock_destroy(of->lock);
+        kfree(of);
+        return 0;
     }
 
     lock_release(of->lock);
@@ -439,8 +428,13 @@ int sys_dup2(int oldfd, int newfd, int32_t *retval)
             struct vnode *vn = of->vn;
             of->vn = NULL;
             vfs_close(vn);
+            /* ADD THESE LINES: */
+            lock_release(of->lock);
+            lock_destroy(of->lock);
+            kfree(of);
+        } else {
+            lock_release(of->lock);
         }
-        lock_release(of->lock);
     }
 
     /* duplicate the fd: point newfd to the same file object as oldfd

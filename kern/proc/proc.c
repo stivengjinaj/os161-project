@@ -167,6 +167,26 @@ proc_create(const char *name)
 	/* VFS fields */
 	proc->p_cwd = NULL;
 
+#if OPT_SHELL
+
+	/**
+	 * @brief Zeroing out the block of memory used by the process fileTable (i.e.
+	 * 		  initializing the struct).
+	 */
+	bzero(proc->fileTable, OPEN_MAX * sizeof(struct openfile*));
+
+	/* Add to the process table */
+	pid_t pid = find_valid_pid();
+    if (pid < 0 || proc_add(pid, proc) == -1) {
+        kfree(proc->p_name);
+        kfree(proc);
+        return NULL;
+    }
+
+    proc->p_pid = pid;
+
+#endif
+
 	return proc;
 }
 
@@ -189,6 +209,10 @@ proc_destroy(struct proc *proc)
 
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
+
+	#if OPT_SHELL
+	proc_remove(proc->p_pid);
+	#endif
 
 	/*
 	 * We don't take p_lock in here because we must have the only
@@ -253,6 +277,24 @@ proc_destroy(struct proc *proc)
 	KASSERT(proc->p_numthreads == 0);
 	spinlock_cleanup(&proc->p_lock);
 
+	#if OPT_SHELL
+
+	for(int i = 0; i < OPEN_MAX; i++) {
+		if (proc->fileTable[i] != NULL) {
+			proc->fileTable[i]->count--;
+
+			if (proc->fileTable[i]->count == 0) {
+				vfs_close(proc->fileTable[i]->vn);
+				lock_destroy(proc->fileTable[i]->lock);
+			}
+
+			proc->fileTable[i] = NULL;
+		}
+		kfree(proc->fileTable[i]);
+	}
+
+#endif
+
 	kfree(proc->p_name);
 	kfree(proc);
 }
@@ -267,7 +309,55 @@ proc_bootstrap(void)
 	if (kproc == NULL) {
 		panic("proc_create for kproc failed\n");
 	}
+
+	#if OPT_SHELL
+	process_table_init();
+	#endif
 }
+
+#if OPT_SHELL
+static int start_console(const char *lock_name, struct proc *proc, int fd, int flag) {
+	
+	/* ALLOCATE MEMORY FOR THE CONSOLE NAME */
+	char *console_name = kstrdup("con:");
+	if (console_name == NULL) {
+		return -1;
+	}
+
+	/* ALLOCATE MEMORY FOR THE OPENFILE STRUCTURE */
+	struct openfile *file = kmalloc(sizeof(struct openfile));
+	if (file == NULL) {
+		kfree(console_name);
+		return -1;
+	}
+
+	/* OPEN THE CONSOLE VNODE */
+	int result = vfs_open(console_name, flag, 0, &file->vn);
+	kfree(console_name);
+	if (result) {
+		kfree(file);
+		return -1;
+	}
+
+	/* INITIALIZE THE OPENFILE STRUCTURE */
+	file->offset = 0;
+	file->lock = lock_create(lock_name);
+	if (file->lock == NULL) {
+		vfs_close(file->vn);
+		kfree(file);
+		return -1;
+	}
+
+	/* SET THE REFERENCE COUNT AND MODE */
+	file->count = 1;
+	file->mode = flag;
+
+	/* ASSIGN THE OPENFILE STRUCTURE TO THE PROCESS'S FILE TABLE */
+	proc->fileTable[fd] = file;
+
+	return 0;
+}
+#endif
 
 /*
  * Create a fresh proc for use by runprogram.
@@ -290,6 +380,17 @@ proc_create_runprogram(const char *name)
 	newproc->p_addrspace = NULL;
 
 	/* VFS fields */
+
+	#if OPT_SHELL
+	/* CONSOLE INITIALIZATION FOR STDIN, STDOUT AND STDERR */
+	if (start_console("STDIN", newproc, 0, O_RDONLY) == -1) {
+		return NULL;
+	} else if (start_console("STDOUT", newproc, 1, O_WRONLY) == -1) {
+		return NULL;
+	} else if (start_console("STDERR", newproc, 2, O_WRONLY) == -1) {
+		return NULL;
+	}
+	#endif
 
 	/*
 	 * Lock the current process to copy its current directory.
