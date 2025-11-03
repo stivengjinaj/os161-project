@@ -45,6 +45,9 @@ int sys_fork(struct trapframe *tf, pid_t *retval) {
         return ENOMEM;
     }
 
+    /* Set parent PID */
+    newproc->parent_pid = curproc->p_pid;
+
     /* Copy the address space */
     result = as_copy(curproc->p_addrspace, &(newproc->p_addrspace));
     if (result) {
@@ -56,14 +59,14 @@ int sys_fork(struct trapframe *tf, pid_t *retval) {
     childtf = kmalloc(sizeof(struct trapframe));
     if (childtf == NULL) {
         as_destroy(newproc->p_addrspace);
+        newproc->p_addrspace = NULL;
         proc_destroy(newproc);
         return ENOMEM;
     }
     memcpy(childtf, tf, sizeof(struct trapframe));
 
-    /* Copy the file table from parent to child */
     if (curproc->fileTable != NULL) {
-        for (int i = 0; i < OPEN_MAX; i++) {
+        for (int i = 3; i < OPEN_MAX; i++) {
             if (curproc->fileTable[i] != NULL) {
                 newproc->fileTable[i] = curproc->fileTable[i];
                 lock_acquire(curproc->fileTable[i]->lock);
@@ -83,25 +86,22 @@ int sys_fork(struct trapframe *tf, pid_t *retval) {
     );
 
     if (result) {
-        /* Clean up on failure */
-        /* Decrement file descriptor reference counts */
-        if (newproc->fileTable != NULL) {
-            for (int i = 0; i < OPEN_MAX; i++) {
-                if (newproc->fileTable[i] != NULL) {
-                    lock_acquire(newproc->fileTable[i]->lock);
-                    newproc->fileTable[i]->count--;
-                    lock_release(newproc->fileTable[i]->lock);
-                    newproc->fileTable[i] = NULL;
-                }
+        for (int i = 3; i < OPEN_MAX; i++) {
+            if (newproc->fileTable[i] != NULL) {
+                lock_acquire(newproc->fileTable[i]->lock);
+                newproc->fileTable[i]->count--;
+                lock_release(newproc->fileTable[i]->lock);
+                newproc->fileTable[i] = NULL;
             }
         }
+        
         kfree(childtf);
         as_destroy(newproc->p_addrspace);
+        newproc->p_addrspace = NULL;
         proc_destroy(newproc);
         return ENOMEM;
     }
 
-    /* Return the child's PID to the parent */
     *retval = newproc->p_pid;
 
     return 0;

@@ -65,6 +65,25 @@ struct proc *kproc;
 
 static struct process_table processTable;
 
+static pid_t find_valid_pid(void) {
+    pid_t pid;
+    spinlock_acquire(&processTable.lock);
+
+    /* Circular PID allocation */
+    pid = (processTable.last_pid + 1 > PROC_MAX) ? 1 : processTable.last_pid + 1;
+    while (pid != processTable.last_pid) {
+        if (processTable.proc[pid] == NULL) {
+            processTable.last_pid = pid;
+            spinlock_release(&processTable.lock);
+            return pid;
+        }
+        pid = (pid + 1 > PROC_MAX) ? 1 : pid + 1;
+    }
+
+    spinlock_release(&processTable.lock);
+    return -1;  /* No available PID */
+}
+
 /*
  * Initialize the process table.
  */
@@ -280,18 +299,24 @@ proc_destroy(struct proc *proc)
 	#if OPT_SHELL
 
 	for(int i = 0; i < OPEN_MAX; i++) {
-		if (proc->fileTable[i] != NULL) {
-			proc->fileTable[i]->count--;
+        if (proc->fileTable[i] != NULL) {
+            struct openfile *of = proc->fileTable[i];
+            
+            lock_acquire(of->lock);
+            of->count--;
 
-			if (proc->fileTable[i]->count == 0) {
-				vfs_close(proc->fileTable[i]->vn);
-				lock_destroy(proc->fileTable[i]->lock);
-			}
+            if (of->count == 0) {
+                vfs_close(of->vn);
+                lock_release(of->lock);
+                lock_destroy(of->lock);
+                kfree(of);
+            } else {
+                lock_release(of->lock);
+            }
 
-			proc->fileTable[i] = NULL;
-		}
-		kfree(proc->fileTable[i]);
-	}
+            proc->fileTable[i] = NULL;
+        }
+    }
 
 #endif
 
