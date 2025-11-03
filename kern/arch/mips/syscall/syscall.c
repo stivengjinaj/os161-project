@@ -36,6 +36,7 @@
 #include <current.h>
 #include <syscall.h>
 #include <copyinout.h>
+#include <addrspace.h>
 
 /*
  * System call dispatcher.
@@ -178,6 +179,23 @@ syscall(struct trapframe *tf)
 							&retval);
 			break;
 
+		case SYS_getpid:
+			err = 0;
+			retval = sys_getpid();
+			break;
+		case SYS_fork:
+			err = sys_fork(tf, &retval);
+			break;
+		case SYS_execv:
+			err = sys_execv((const char *)tf->tf_a0,
+							(char **)tf->tf_a1);
+			break;
+		case SYS_waitpid:
+    		err = sys_waitpid((pid_t)tf->tf_a0,
+                      (int *)tf->tf_a1,
+                      (int)tf->tf_a2,
+                      &retval);
+    		break;
         case SYS__exit:
 			sys__exit((int)tf->tf_a0);
 			/* sys__exit does not return */
@@ -228,8 +246,30 @@ syscall(struct trapframe *tf)
  *
  * Thus, you can trash it and do things another way if you prefer.
  */
-void
-enter_forked_process(struct trapframe *tf)
-{
-	(void)tf;
+#if OPT_SHELL
+void enter_forked_process(void *data, unsigned long unused) {
+    (void)unused;  /* Suppress unused parameter warning */
+    
+    struct trapframe *tf = (struct trapframe *)data;
+    struct trapframe childtf;
+    
+    /* Copy the trapframe to the stack */
+    memcpy(&childtf, tf, sizeof(struct trapframe));
+    
+    /* Free the heap-allocated trapframe */
+    kfree(tf);
+    
+    /* Set return value to 0 for child process */
+    childtf.tf_v0 = 0;
+    childtf.tf_a3 = 0;
+    
+    /* Advance PC past the syscall instruction */
+    childtf.tf_epc += 4;
+    
+    /* Activate the child's address space */
+    as_activate();
+    
+    /* Return to usermode in the child process */
+    mips_usermode(&childtf);
 }
+#endif

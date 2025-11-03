@@ -487,26 +487,41 @@ int sys___getcwd(char *buf, size_t buflen, int *retval){
         return EINVAL;
     }
 
-    /* check that buf points to valid user memory */
-    int result = copyin((const_userptr_t)buf, buf, 1);
-    if (result) return result;
+    /* allocate kernel buffer */
+    char *kbuf = kmalloc(buflen);
+    if (kbuf == NULL) {
+        return ENOMEM;
+    }
 
     struct iovec iov;
     struct uio u;
 
-    /* setup uio to write path directly to user buffer */
-    uio_uinit(&iov, &u, buf, buflen, 0, UIO_READ);
+    /* setup uio to write path to kernel buffer */
+    uio_kinit(&iov, &u, kbuf, buflen, 0, UIO_READ);
 
     /* get current working directory from VFS */
-    result = vfs_getcwd(&u);   
+    int result = vfs_getcwd(&u);   
     if (result) {
+        kfree(kbuf);
         return result;
     }
 
-    /* return number of bytes written (not null-terminated) */
-    *retval = (int)(buflen - u.uio_resid);
+    /* calculate bytes written */
+    size_t len = buflen - u.uio_resid;
+
+    /* copy from kernel buffer to user buffer */
+    result = copyout(kbuf, (userptr_t)buf, len);
+    if (result) {
+        kfree(kbuf);
+        return EFAULT;
+    }
+
+    /* clean up */
+    kfree(kbuf);
+
+    /* return number of bytes written */
+    *retval = (int)len;
     return 0;
-    
 }
 
 #endif
