@@ -21,6 +21,10 @@ SUBDIRS+=test_dup2
 SUBDIRS+=test_lseek
 SUBDIRS+=test_chdir
 SUBDIRS+=test_getcwd
+SUBDIRS+=test_getpid
+SUBDIRS+=test_fork
+SUBDIRS+=test_execv
+SUBDIRS+=test_waitpid
 
 # But not:
 #    userthreads    (no support in kernel API in base system)
