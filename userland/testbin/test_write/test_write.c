@@ -23,7 +23,7 @@ print_result(const char *test_name, int passed)
 }
 
 /*
- * Test 1: Write to stdout
+ * Test 1: Writes to stdout. It writes a known string to stdout and checks the return value.
  */
 static void
 test_write_stdout(void)
@@ -37,7 +37,7 @@ test_write_stdout(void)
 }
 
 /*
- * Test 2: Write to a file
+ * Test 2: Writes to a file. It creates a file, writes known data, and checks the return value.
  */
 static void
 test_write_file(void)
@@ -67,7 +67,7 @@ test_write_file(void)
 }
 
 /*
- * Test 3: Write with invalid fd
+ * Test 3: Writes with invalid fd. It calls write on an invalid descriptor 999 and expects it to fail.
  */
 static void
 test_write_invalid_fd(void)
@@ -87,7 +87,8 @@ test_write_invalid_fd(void)
 }
 
 /*
- * Test 4: Write to closed fd
+ * Test 4: Write to closed fd. It opens a file, closes it, then attempts to write
+ * to the closed descriptor, expecting failure.
  */
 static void
 test_write_closed_fd(void)
@@ -117,7 +118,8 @@ test_write_closed_fd(void)
 }
 
 /*
- * Test 5: Write to read-only file
+ * Test 5: Write to read-only file. It opens a file in read-only mode and attempts to write,
+ * expecting failure.
  */
 static void
 test_write_readonly_file(void)
@@ -126,14 +128,12 @@ test_write_readonly_file(void)
     int fd;
     int result;
     
-    /* First create the file */
     fd = open(TEST_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         write(fd, "data", 4);
         close(fd);
     }
     
-    /* Now open it read-only and try to write */
     fd = open(TEST_FILE, O_RDONLY);
     if (fd < 0) {
         printf("  Error: Could not open file\n");
@@ -155,7 +155,8 @@ test_write_readonly_file(void)
 }
 
 /*
- * Test 6: Multiple writes to same file
+ * Test 6: Multiple writes to same file. It opens a file and performs multiple write calls,
+ * verifying the total bytes written.
  */
 static void
 test_multiple_writes(void)
@@ -188,9 +189,7 @@ test_multiple_writes(void)
 int
 main(void)
 {
-    printf("========================================\n");
-    printf("     Write System Call Test Suite\n");
-    printf("========================================\n\n");
+    printf("Write System Call Test Suite\n");
     
     test_write_stdout();
     test_write_file();
@@ -199,12 +198,10 @@ main(void)
     test_write_readonly_file();
     test_multiple_writes();
     
-    printf("\n----------------------------------------\n");
     printf("Test Summary:\n");
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
-    printf("  Total:  %d\n", tests_passed + tests_failed);
-    printf("========================================\n");
+    printf("Passed: %d\n", tests_passed);
+    printf("Failed: %d\n", tests_failed);
+    printf("Total:  %d\n", tests_passed + tests_failed);
     
     return (tests_failed == 0) ? 0 : 1;
 }

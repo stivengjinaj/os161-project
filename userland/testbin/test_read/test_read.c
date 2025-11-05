@@ -10,7 +10,10 @@
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-/* Helper function to compare memory */
+/* 
+    Helper function that compares s1 and s2 for n bytes.
+    Returns 0 if they are equal, non-zero otherwise.
+*/
 static int
 memcmp_local(const char *s1, const char *s2, size_t n)
 {
@@ -36,7 +39,8 @@ print_result(const char *test_name, int passed)
 }
 
 /*
- * Test 1: Read from a file
+ * Test 1: Reads from a file. It creates the file first, writes known data,
+ * then reads it back and verifies the content and byte count.
  */
 static void
 test_read_file(void)
@@ -87,7 +91,8 @@ test_read_file(void)
 }
 
 /*
- * Test 2: Read with invalid fd
+ * Test 2: Reads with invalid fd. It calls the read on an invalid descriptor 999
+ * and expects it to fail.
  */
 static void
 test_read_invalid_fd(void)
@@ -108,7 +113,8 @@ test_read_invalid_fd(void)
 }
 
 /*
- * Test 3: Read from closed fd
+ * Test 3: Reads from closed fd. It opens a file, closes it, then attempts to read
+ * from the closed descriptor, expecting failure.
  */
 static void
 test_read_closed_fd(void)
@@ -118,7 +124,6 @@ test_read_closed_fd(void)
     char buffer[10];
     int result;
     
-    /* Create and close a file */
     fd = open(TEST_FILE, O_RDONLY | O_CREAT, 0644);
     if (fd < 0) {
         printf("  Error: Could not open file\n");
@@ -139,7 +144,8 @@ test_read_closed_fd(void)
 }
 
 /*
- * Test 4: Read from write-only file
+ * Test 4: Reads from write-only file. It opens a file in write-only mode and attempts to read,
+ * expecting failure.
  */
 static void
 test_read_writeonly_file(void)
@@ -170,7 +176,7 @@ test_read_writeonly_file(void)
 }
 
 /*
- * Test 5: Multiple reads from same file
+ * Test 5: Multiple reads from same file. It reads the file in two chunks and verifies both reads.
  */
 static void
 test_multiple_reads(void)
@@ -181,14 +187,12 @@ test_multiple_reads(void)
     char buffer2[10];
     int result1, result2;
     
-    /* Create test file */
     fd = open(TEST_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         write(fd, "0123456789ABCDEFGHIJ", 20);
         close(fd);
     }
     
-    /* Read in chunks */
     fd = open(TEST_FILE, O_RDONLY);
     if (fd < 0) {
         printf("  Error: Could not open file\n");
@@ -221,7 +225,8 @@ test_multiple_reads(void)
 }
 
 /*
- * Test 6: Read beyond EOF
+ * Test 6: Reads beyond EOF. It creates a small file and attempts to read more bytes than exist,
+ * expecting to read only up to EOF.
  */
 static void
 test_read_eof(void)
@@ -231,14 +236,12 @@ test_read_eof(void)
     char buffer[128];
     int result;
     
-    /* Create small file */
     fd = open(TEST_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         write(fd, "Small", 5);
         close(fd);
     }
     
-    /* Try to read more than exists */
     fd = open(TEST_FILE, O_RDONLY);
     if (fd < 0) {
         printf("  Error: Could not open file\n");
@@ -263,9 +266,7 @@ test_read_eof(void)
 int
 main(void)
 {
-    printf("========================================\n");
-    printf("      Read System Call Tests\n");
-    printf("========================================\n\n");
+    printf("Read System Call Tests\n");
     
     test_read_file();
     test_read_invalid_fd();
@@ -274,12 +275,10 @@ main(void)
     test_multiple_reads();
     test_read_eof();
     
-    printf("\n----------------------------------------\n");
     printf("Test Summary:\n");
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
-    printf("  Total:  %d\n", tests_passed + tests_failed);
-    printf("========================================\n");
+    printf("Passed: %d\n", tests_passed);
+    printf("Failed: %d\n", tests_failed);
+    printf("Total:  %d\n", tests_passed + tests_failed);
     
     return (tests_failed == 0) ? 0 : 1;
 }

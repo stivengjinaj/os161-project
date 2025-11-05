@@ -15,4 +15,5 @@ $(MYBUILDDIR)/test_dup2.o: \
  $(INSTALLTOP)/include/kern/unistd.h \
  $(INSTALLTOP)/include/kern/wait.h \
  $(INSTALLTOP)/include/stdio.h \
- $(INSTALLTOP)/include/fcntl.h
+ $(INSTALLTOP)/include/fcntl.h \
+ $(INSTALLTOP)/include/string.h

@@ -1,10 +1,3 @@
-/*
- * opentest.c
- *
- * Test program for the open() system call.
- * Tests various scenarios including success cases and error handling.
- */
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <kern/errno.h>
@@ -15,11 +8,9 @@
 #define NEW_FILE "newfile.txt"
 #define NONEXISTENT "does_not_exist.txt"
 
-/* Test counters */
 static int tests_passed = 0;
 static int tests_failed = 0;
 
-/* Helper function to print test results */
 static void
 print_result(const char *test_name, int passed)
 {
@@ -33,7 +24,8 @@ print_result(const char *test_name, int passed)
 }
 
 /*
- * Test 1: Open an existing file for reading
+ * Test 1: Opens an existing file for reading. It opens TEST_FILE in read-only mode.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_existing_readonly(void)
@@ -54,7 +46,8 @@ test_open_existing_readonly(void)
 }
 
 /*
- * Test 2: Open an existing file for writing
+ * Test 2: Opens an existing file for writing. It opens TEST_FILE in write-only mode.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_existing_writeonly(void)
@@ -75,7 +68,8 @@ test_open_existing_writeonly(void)
 }
 
 /*
- * Test 3: Open an existing file for read/write
+ * Test 3: Opens an existing file for read/write. It opens TEST_FILE in read-write mode.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_existing_readwrite(void)
@@ -96,7 +90,8 @@ test_open_existing_readwrite(void)
 }
 
 /*
- * Test 4: Open non-existent file without O_CREAT (should fail)
+ * Test 4: Opens non-existent file without O_CREAT. It attempts to open a file that does not exist
+ * without the O_CREAT flag. Expects failure.
  */
 static void
 test_open_nonexistent_nocreat(void)
@@ -117,7 +112,8 @@ test_open_nonexistent_nocreat(void)
 }
 
 /*
- * Test 5: Create new file with O_CREAT
+ * Test 5: Creates new file with O_CREAT. It attempts to create a new file using O_CREAT flag.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_create_new(void)
@@ -138,7 +134,8 @@ test_open_create_new(void)
 }
 
 /*
- * Test 6: Open with NULL filename (should fail with EFAULT)
+ * Test 6: Opens with NULL filename (should fail with EFAULT).  It attempts to open a file with a NULL filename pointer.
+ * Expects failure with EFAULT.
  */
 static void
 test_open_null_filename(void)
@@ -159,7 +156,8 @@ test_open_null_filename(void)
 }
 
 /*
- * Test 7: Open with empty string (should fail)
+ * Test 7: Opens with empty string. It attempts to open a file with an empty string as the filename.
+ * Expects failure.
  */
 static void
 test_open_empty_string(void)
@@ -180,7 +178,8 @@ test_open_empty_string(void)
 }
 
 /*
- * Test 8: Open with invalid flags (should fail)
+ * Test 8: Opens with invalid flags. It attempts to open a file with invalid flags.
+ * Expects failure with EINVAL.
  */
 static void
 test_open_invalid_flags(void)
@@ -202,7 +201,8 @@ test_open_invalid_flags(void)
 }
 
 /*
- * Test 9: Open multiple files
+ * Test 9: Opens multiple files simultaneously. It attempts to open the same file multiple times.
+ * Expects success and unique file descriptors.
  */
 static void
 test_open_multiple_files(void)
@@ -235,7 +235,6 @@ test_open_multiple_files(void)
         return;
     }
     
-    /* Check that file descriptors are different */
     if (fd1 == fd2 || fd1 == fd3 || fd2 == fd3) {
         printf("  Error: File descriptors are not unique: fd1=%d, fd2=%d, fd3=%d\n",
                fd1, fd2, fd3);
@@ -252,7 +251,8 @@ test_open_multiple_files(void)
 }
 
 /*
- * Test 10: Open with O_APPEND flag
+ * Test 10: Opens with O_APPEND flag. It attempts to open a file with the O_APPEND flag.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_append(void)
@@ -273,7 +273,8 @@ test_open_append(void)
 }
 
 /*
- * Test 11: Open with O_TRUNC flag
+ * Test 11: Opens with O_TRUNC flag. It attempts to open a file with the O_TRUNC flag.
+ * Expects success and a valid file descriptor.
  */
 static void
 test_open_trunc(void)
@@ -294,7 +295,9 @@ test_open_trunc(void)
 }
 
 /*
- * Test 12: Test file descriptor allocation order
+ * Test 12: Tests file descriptor allocation order. It opens multiple files, closes one in the middle,
+ * and opens another to see if the closed descriptor is reused. Expects the new file to reuse the lowest 
+ * available file descriptor.
  */
 static void
 test_fd_allocation_order(void)
@@ -317,10 +320,8 @@ test_fd_allocation_order(void)
         return;
     }
     
-    /* Close middle one */
     close(fd2);
     
-    /* Open another - should reuse fd2 */
     int fd4 = open(TEST_FILE, O_RDONLY);
     if (fd4 < 0) {
         printf("  Error reopening: %d\n", fd4);
@@ -328,7 +329,6 @@ test_fd_allocation_order(void)
     } else if (fd4 != fd2) {
         printf("  Warning: Expected fd=%d but got fd=%d (may be implementation-specific)\n", 
                fd2, fd4);
-        /* Don't fail test - fd allocation order can vary */
         printf("  FD values: fd1=%d, fd2=%d, fd3=%d, fd4=%d\n", fd1, fd2, fd3, fd4);
     } else {
         printf("  FDs correctly reused: fd1=%d, reused=%d, fd3=%d\n", fd1, fd4, fd3);
@@ -340,20 +340,11 @@ test_fd_allocation_order(void)
     print_result(test_name, success);
 }
 
-/*
- * Main test driver
- */
 int
 main(void)
 {
-    printf("========================================\n");
-    printf("     Open System Call Test Suite\n");
-    printf("========================================\n\n");
-    
-    printf("Note: Some tests require '%s' to exist.\n", TEST_FILE);
-    printf("      Creating it now...\n\n");
-    
-    /* Create test file */
+    printf("Open System Call Test Suite\n");
+        
     int fd = open(TEST_FILE, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (fd >= 0) {
         write(fd, "Test data\n", 10);
@@ -362,10 +353,6 @@ main(void)
     } else {
         printf("Warning: Could not create test file\n\n");
     }
-    
-    /* Run all tests */
-    printf("Running tests...\n");
-    printf("----------------------------------------\n");
     
     test_open_existing_readonly();
     test_open_existing_writeonly();
@@ -380,13 +367,10 @@ main(void)
     test_open_trunc();
     test_fd_allocation_order();
     
-    /* Print summary */
-    printf("----------------------------------------\n");
-    printf("\nTest Summary:\n");
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
-    printf("  Total:  %d\n", tests_passed + tests_failed);
-    printf("\n========================================\n");
+    printf("Test Summary:\n");
+    printf("Passed: %d\n", tests_passed);
+    printf("Failed: %d\n", tests_failed);
+    printf("Total:  %d\n", tests_passed + tests_failed);
     
     return (tests_failed == 0) ? 0 : 1;
 }

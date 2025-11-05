@@ -21,7 +21,8 @@ print_result(const char *test_name, int passed)
 }
 
 /*
- * Test 1: Close a valid file descriptor
+ * Test 1: Closes a valid file descriptor. It opens a file, closes the descriptor,
+ * and verifies that the close operation was successful.
  */
 static void
 test_close_valid_fd(void)
@@ -49,7 +50,8 @@ test_close_valid_fd(void)
 }
 
 /*
- * Test 2: Close invalid fd
+ * Test 2: Closes invalid fd. It attempts to close an invalid descriptor (999)
+ * and expects it to fail.
  */
 static void
 test_close_invalid_fd(void)
@@ -69,7 +71,8 @@ test_close_invalid_fd(void)
 }
 
 /*
- * Test 3: Close already closed fd
+ * Test 3: Closes already closed fd. It opens a file, closes the descriptor,
+ * then attempts to close it again, expecting failure.
  */
 static void
 test_close_already_closed(void)
@@ -105,7 +108,8 @@ test_close_already_closed(void)
 }
 
 /*
- * Test 4: Close and verify fd is reused
+ * Test 4: Closes and verify fd is reused. It opens a file, closes it,
+ * then opens it again and checks if the same fd is reused.
  */
 static void
 test_close_fd_reuse(void)
@@ -141,7 +145,8 @@ test_close_fd_reuse(void)
 }
 
 /*
- * Test 5: Operations on closed fd should fail
+ * Test 5: Operations on closed fd should fail. It opens a file, closes it,
+ * then attempts read and write operations, expecting both to fail.
  */
 static void
 test_operations_after_close(void)
@@ -161,14 +166,12 @@ test_operations_after_close(void)
     
     close(fd);
     
-    /* Try to read */
     read_result = read(fd, buffer, sizeof(buffer));
     if (read_result >= 0) {
         printf("  Error: Read after close should have failed\n");
         success = 0;
     }
     
-    /* Try to write */
     write_result = write(fd, "test", 4);
     if (write_result >= 0) {
         printf("  Error: Write after close should have failed\n");
@@ -183,7 +186,8 @@ test_operations_after_close(void)
 }
 
 /*
- * Test 6: Close multiple fds
+ * Test 6: Closes multiple fds. It opens multiple files, closes them all,
+ * and verifies that all close operations were successful.
  */
 static void
 test_close_multiple(void)
@@ -234,9 +238,7 @@ test_close_multiple(void)
 int
 main(void)
 {
-    printf("========================================\n");
-    printf("     Close System Call Test Suite\n");
-    printf("========================================\n\n");
+    printf("Close System Call Test Suite\n");
     
     test_close_valid_fd();
     test_close_invalid_fd();
@@ -245,12 +247,10 @@ main(void)
     test_operations_after_close();
     test_close_multiple();
     
-    printf("\n----------------------------------------\n");
     printf("Test Summary:\n");
-    printf("  Passed: %d\n", tests_passed);
-    printf("  Failed: %d\n", tests_failed);
-    printf("  Total:  %d\n", tests_passed + tests_failed);
-    printf("========================================\n");
+    printf("Passed: %d\n", tests_passed);
+    printf("Failed: %d\n", tests_failed);
+    printf("Total:  %d\n", tests_passed + tests_failed);
     
     return (tests_failed == 0) ? 0 : 1;
 }
