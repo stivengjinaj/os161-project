@@ -26,12 +26,34 @@
 #include <kern/limits.h>
 
 #if OPT_SHELL
+
+/* sys_getpid - Get the process ID of the current process
+ *
+ *   Returns the process ID of the calling process.
+ *
+ * Returns:
+ *   The process ID of the current process.
+ */
 pid_t sys_getpid() {
   /* process ID of the current process */
   pid_t result = curproc->p_pid;
   return result;
 }
 
+/* sys_fork - Fork a new process
+ *
+ *   Creates a new process by duplicating the calling process.
+ *   The new process (child) gets a copy of the parent's address space
+ *   and a copy of the parent's trapframe.
+ *
+ * Arguments:
+ *   tf      - Pointer to the trapframe of the calling process
+ *   retval  - Pointer to store the child's process ID in the parent
+ *
+ * Returns:
+ *   0 on success
+ *   ENOMEM  - Insufficient memory to create the new process
+ */
 int sys_fork(struct trapframe *tf, pid_t *retval) {
     struct proc *newproc;
     struct trapframe *childtf;
@@ -109,6 +131,22 @@ int sys_fork(struct trapframe *tf, pid_t *retval) {
     return 0;
 }
 
+/* sys_execv - Execute a new program
+ *
+ *   Replaces the current process's address space with a new program
+ *   loaded from the specified executable file, and sets up the user stack
+ *   with the provided arguments.
+ *
+ * Arguments:
+ *   program - Pointer to the name of the executable file
+ *   args    - Pointer to an array of argument strings
+ *
+ * Returns:
+ *   0 on success
+ *   EFAULT  - Invalid pointer provided
+ *   ENOMEM  - Insufficient memory to load the program
+ *   E2BIG   - Argument list too long
+ */
 int sys_execv(const char *program, char **args) {
     struct addrspace *as;
     struct vnode *v;
@@ -315,6 +353,24 @@ int sys_execv(const char *program, char **args) {
     return EINVAL;
 }
 
+/* sys_waitpid - Wait for a specific child process to exit
+ *
+ *   Waits for the child process with the specified PID to exit and retrieves
+ *   its exit status.
+ *
+ * Arguments:
+ *   pid     - Process ID of the child to wait for
+ *   status  - Pointer to store the exit status of the child
+ *   options - Options for waiting (currently only WNOHANG is supported)
+ *   retval  - Pointer to store the PID of the exited child
+ *
+ * Returns:
+ *   0 on success
+ *   EINVAL  - Invalid options provided
+ *   ECHILD  - Specified PID is not a child of the calling process
+ *   ESRCH   - No such process with the specified PID
+ *   EFAULT  - Invalid status pointer provided
+ */
 int sys_waitpid(pid_t pid, int *status, int options, int *retval) {
     int result;
     
@@ -392,6 +448,14 @@ int sys_waitpid(pid_t pid, int *status, int options, int *retval) {
     return 0;
 }
 
+/* sys__exit - Exit the current process
+ *
+ *   Terminates the calling process with the specified exit code.
+ *   Cleans up resources and notifies the parent process if necessary.
+ *
+ * Arguments:
+ *   exitcode - Exit code of the process
+ */
 void sys__exit(int exitcode) {
     struct proc *p = curproc;
     

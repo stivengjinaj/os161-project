@@ -24,8 +24,27 @@
 #include <kern/limits.h>
 
 #if OPT_SHELL
+
 /*
- * simple file system calls for write/read
+ * sys_write - Write data to a file descriptor
+ *
+ *   Writes up to buflen bytes from the buffer buf to the file referenced 
+ *   by the file descriptor fd. The file must be open for writing.
+ *
+ * Arguments:
+ *   fd      - File descriptor to write to (must be valid and open for writing)
+ *   buf     - Pointer to user space buffer containing data to write
+ *   buflen  - Number of bytes to write from the buffer
+ *   retval  - Pointer to store the number of bytes actually written
+ *
+ * Returns:
+ *   0 on success
+ *   EBADF   - fd is invalid, not open, or opened as read-only
+ *   EFAULT  - buf is NULL or invalid user space pointer
+ *   ENOMEM  - Insufficient kernel memory to allocate buffer
+ *   ENOSPC  - No free space remaining on the filesystem
+ *   EIO     - Hardware I/O error occurred during write operation
+ *
  */
 ssize_t sys_write(int fd, const void *buf, size_t buflen, int32_t *retval)
 {
@@ -106,6 +125,25 @@ ssize_t sys_write(int fd, const void *buf, size_t buflen, int32_t *retval)
     return 0;
 }
 
+/*
+ * sys_read - Read data from a file descriptor
+ *
+ *   Reads up to buflen bytes from the file referenced by the file 
+ *   descriptor fd into the buffer buf. The file must be open for reading.
+ *
+ * Arguments:
+ *   fd      - File descriptor to read from (must be valid and open for reading)
+ *   buf     - Pointer to user space buffer to store read data
+ *   buflen  - Maximum number of bytes to read into the buffer
+ *   retval  - Pointer to store the number of bytes actually read
+ *
+ * Returns:
+ *   0 on success
+ *   EBADF   - fd is invalid, not open, or opened as write-only
+ *   EFAULT  - buf is NULL or invalid user space pointer
+ *   ENOMEM  - Insufficient kernel memory to allocate buffer
+ *   EIO     - Hardware I/O error occurred during read operation
+ */
 ssize_t sys_read(int fd, const void *buf, size_t buflen, int32_t *retval) {
 
     /* VALIDATE FILE DESCRIPTOR */
@@ -158,6 +196,26 @@ ssize_t sys_read(int fd, const void *buf, size_t buflen, int32_t *retval) {
     return 0;
 }
 
+/*
+ * sys_open - Open a file and return a file descriptor
+ *
+ *   Opens the file specified by the pathname filename with the given flags 
+ *   and mode, and returns a file descriptor for the opened file.
+ *
+ * Arguments:
+ *   filename - Pointer to user space string containing the file path
+ *   flags    - Flags specifying how the file should be opened (e.g., O_RDONLY, O_WRONLY, O_RDWR, O_APPEND)
+ *   mode     - File mode (permissions) to use if a new file is created
+ *   retval   - Pointer to store the resulting file descriptor
+ *
+ * Returns:
+ *   0 on success
+ *   EFAULT  - filename is NULL or invalid user space pointer
+ *   ENOMEM  - Insufficient kernel memory to allocate structures
+ *   EMFILE  - Process has too many open files
+ *   EINVAL  - Invalid flags provided
+ *   Other error codes from vfs_open as applicable
+ */
 int sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
 {
     /* CHECKING IF PATHNAME IS NULL */
@@ -274,6 +332,20 @@ int sys_open(userptr_t filename, int flags, mode_t mode, int *retval)
     return 0;
 }
 
+/*
+ * sys_close - Close a file descriptor
+ *
+ *   Closes the file descriptor fd, releasing any resources associated 
+ *   with it. If this is the last reference to the underlying file, 
+ *   the file is closed.
+ *
+ * Arguments:
+ *   fd      - File descriptor to close
+ *
+ * Returns:
+ *   0 on success
+ *   EBADF   - fd is invalid or not open
+ */
 int sys_close(int fd)
 {
     /* CHECK IF THE FILE DESCRIPTOR IS VALID */
@@ -309,7 +381,25 @@ int sys_close(int fd)
     return 0;
 }
 
-
+/*
+ * sys_lseek - Reposition read/write file offset
+ *
+ *   Repositions the file offset of the open file associated with the 
+ *   file descriptor fd to the argument pos according to the directive whence.
+ *
+ * Arguments:
+ *   fd      - File descriptor of the open file
+ *   pos     - Offset to set
+ *   whence  - Directive for setting the offset (SEEK_SET, SEEK_CUR, SEEK_END)
+ *   retval  - Pointer to store the new file offset
+ *
+ * Returns:
+ *   0 on success
+ *   EBADF   - fd is invalid or not open
+ *   ESPIPE  - fd refers to a pipe, socket, or FIFO
+ *   EINVAL  - Invalid whence value or resulting offset is negative
+ *   Other error codes from VOP_STAT as applicable
+ */
 int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
 
     /* Validate process */
@@ -400,6 +490,22 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
 
 }
 
+/*
+ * sys_dup2 - Duplicate a file descriptor
+ *
+ *   Duplicates the file descriptor oldfd to newfd. If newfd is already 
+ *   open, it is closed before being reused. After duplication, both 
+ *   file descriptors refer to the same open file description.
+ *
+ * Arguments:
+ *   oldfd   - File descriptor to duplicate
+ *   newfd   - File descriptor to duplicate to
+ *   retval  - Pointer to store the new file descriptor (newfd)
+ *
+ * Returns:
+ *   0 on success
+ *   EBADF   - oldfd or newfd is invalid, or oldfd is not open
+ */
 int sys_dup2(int oldfd, int newfd, int32_t *retval)
 {
     /* check validity of oldfd and newfd */
@@ -448,7 +554,20 @@ int sys_dup2(int oldfd, int newfd, int32_t *retval)
     return 0;
 }
 
-
+/*
+ * sys_chdir - Change the current working directory
+ *
+ *   Changes the current working directory of the calling process to 
+ *   the directory specified by the path.
+ *
+ * Arguments:
+ *   path    - Pointer to user space string containing the new directory path
+ *
+ * Returns:
+ *   0 on success
+ *   EFAULT  - path is NULL or invalid user space pointer
+ *   Other error codes from vfs_chdir as applicable
+ */
 int sys_chdir(const char *path){
     
     if (path == NULL) {
@@ -469,7 +588,24 @@ int sys_chdir(const char *path){
     return err;
 }
 
-
+/*
+ * sys___getcwd - Get the current working directory
+ *
+ *   Retrieves the current working directory of the calling process 
+ *   and copies it into the user-provided buffer.
+ *
+ * Arguments:
+ *   buf     - Pointer to user space buffer to store the current directory path
+ *   buflen  - Size of the user buffer
+ *   retval  - Pointer to store the number of bytes written to the buffer
+ *
+ * Returns:
+ *   0 on success
+ *   EFAULT  - buf is NULL or invalid user space pointer
+ *   EINVAL  - buflen is zero
+ *   ENOMEM  - Insufficient kernel memory to allocate buffer
+ *   Other error codes from vfs_getcwd as applicable
+ */
 int sys___getcwd(char *buf, size_t buflen, int *retval){
 
     if (buf == NULL) {
