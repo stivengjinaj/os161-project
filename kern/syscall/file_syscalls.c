@@ -400,7 +400,7 @@ int sys_close(int fd)
  *   EINVAL  - Invalid whence value or resulting offset is negative
  *   Other error codes from VOP_STAT as applicable
  */
-int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
+int sys_lseek(int fd, off_t pos, int whence, int32_t *retval_low, int32_t *retval_high){
 
     /* Validate process */
     KASSERT(curproc != NULL);
@@ -420,6 +420,7 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
     if (!VOP_ISSEEKABLE(of->vn)){
         return ESPIPE;
     }
+
 
     off_t new_offset;
     int result;
@@ -462,7 +463,7 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
                 lock_release(of->lock);
                 return EINVAL;
             }
-            new_offset = statbuf.st_size + pos;
+            new_offset = statbuf.st_size - pos;
             break;
 
         default:
@@ -480,11 +481,12 @@ int sys_lseek(int fd, off_t pos, int whence, off_t *retval){
 
     /* Update the file offset */
     of->offset = new_offset;
+    lock_release(of->lock);
+
 
     /* Return the new position */
-    *retval = new_offset;
-
-    lock_release(of->lock);
+    *retval_low = (int32_t)(new_offset >> 32);
+    *retval_high = (int32_t)(new_offset & 0x00000000ffffffff);
 
     return 0;
 
