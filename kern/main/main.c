@@ -101,9 +101,15 @@ boot(void)
 	kprintf("%s", harvard_copyright);
 	kprintf("\n");
 
-	kprintf("Giunti-Gjinaj's system version %s (%s #%d)\n",
-		GROUP_VERSION, buildconfig, buildversion);
-	kprintf("\n");
+	#if OPT_SHELL
+		kprintf("Project c2 - SHELL\n");
+		kprintf("Alberto Giunti - s336374@studenti.polito.it\n");
+		kprintf("Stiven Gjinaj - s333805@studenti.polito.it\n");
+	#else
+		kprintf("Put-your-group-name-here's system version %s (%s #%d)\n",
+			GROUP_VERSION, buildconfig, buildversion);
+		kprintf("\n");
+	#endif
 
 	/* Early initialization. */
 	ram_bootstrap();
@@ -115,12 +121,6 @@ boot(void)
 
 	/* Probe and initialize devices. Interrupts should come on. */
 	kprintf("Device probe...\n");
-	#if OPT_SHELL
-	kprintf("OPT_SHELL is enabled\n");
-	#else
-	kprintf("OPT_SHELL is disabled\n");
-	#endif
-	
 	KASSERT(curthread->t_curspl > 0);
 	mainbus_bootstrap();
 	KASSERT(curthread->t_curspl == 0);
