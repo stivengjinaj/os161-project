@@ -224,20 +224,20 @@ proc_destroy(struct proc *proc)
 	 * your wait/exit design calls for the process structure to
 	 * hang around beyond process exit. Some wait/exit designs
 	 * do, some don't.
-	 */
+	*/
 
 	KASSERT(proc != NULL);
 	KASSERT(proc != kproc);
 
 	#if OPT_SHELL
-	proc_remove(proc->p_pid);
+		proc_remove(proc->p_pid);
 	#endif
 
 	/*
 	 * We don't take p_lock in here because we must have the only
 	 * reference to this structure. (Otherwise it would be
 	 * incorrect to destroy it.)
-	 */
+	*/
 
 	/* VFS fields */
 	if (proc->p_cwd) {
@@ -298,27 +298,27 @@ proc_destroy(struct proc *proc)
 
 	#if OPT_SHELL
 
-	for(int i = 0; i < OPEN_MAX; i++) {
-        if (proc->fileTable[i] != NULL) {
-            struct openfile *of = proc->fileTable[i];
-            
-            lock_acquire(of->lock);
-            of->count--;
+		for(int i = 0; i < OPEN_MAX; i++) {
+			if (proc->fileTable[i] != NULL) {
+				struct openfile *of = proc->fileTable[i];
+				
+				lock_acquire(of->lock);
+				of->count--;
 
-            if (of->count == 0) {
-                vfs_close(of->vn);
-                lock_release(of->lock);
-                lock_destroy(of->lock);
-                kfree(of);
-            } else {
-                lock_release(of->lock);
-            }
+				if (of->count == 0) {
+					vfs_close(of->vn);
+					lock_release(of->lock);
+					lock_destroy(of->lock);
+					kfree(of);
+				} else {
+					lock_release(of->lock);
+				}
 
-            proc->fileTable[i] = NULL;
-        }
-    }
+				proc->fileTable[i] = NULL;
+			}
+		}
 
-#endif
+	#endif
 
 	kfree(proc->p_name);
 	kfree(proc);

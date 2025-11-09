@@ -242,30 +242,45 @@ syscall(struct trapframe *tf)
  *
  * Thus, you can trash it and do things another way if you prefer.
  */
+
+/*
+ * enter_forked_process - Function called by the child process thread after fork.
+ */
+/*
+ * enter_forked_process - Function called by the child process thread after fork.
+ */
+
 #if OPT_SHELL
-void enter_forked_process(void *data, unsigned long unused) {
-    (void)unused;  /* Suppress unused parameter warning */
-    
+void enter_forked_process(void *data, unsigned long unused)
+{
+    (void)unused; /* Unused variable */
+
     struct trapframe *tf = (struct trapframe *)data;
-    struct trapframe childtf;
+    struct trapframe kernel_tf;
+
+    KASSERT(tf != NULL);
+
+    /* Copy trapframe to kernel stack before freeing the allocated memory */
+    kernel_tf = *tf;
     
-    /* Copy the trapframe to the stack */
-    memcpy(&childtf, tf, sizeof(struct trapframe));
-    
-    /* Free the heap-allocated trapframe */
+    /* Free the allocated trapframe */
     kfree(tf);
-    
-    /* Set return value to 0 for child process */
-    childtf.tf_v0 = 0;
-    childtf.tf_a3 = 0;
-    
-    /* Advance PC past the syscall instruction */
-    childtf.tf_epc += 4;
-    
-    /* Activate the child's address space */
+
+    /* Activate the new address space */
     as_activate();
-    
-    /* Return to usermode in the child process */
-    mips_usermode(&childtf);
+
+    /* Modify the trapframe for the child */
+    kernel_tf.tf_v0 = 0;	/* Return value for the child */
+    kernel_tf.tf_a3 = 0;	/* Signal no error */
+    kernel_tf.tf_epc += 4;  /* Advance the program counter */
+
+    /* Enter user mode */
+    mips_usermode(&kernel_tf);
+}
+#else
+void
+enter_forked_process(struct trapframe *tf)
+{
+    (void)tf;
 }
 #endif
