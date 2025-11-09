@@ -253,6 +253,9 @@ void sys__exit(int exitcode) {
     struct proc *p = curproc;
     
     KASSERT(p != NULL);
+
+    /* Remove thread from process FIRST (before signaling parent) */
+    proc_remthread(curthread);
     
     /* Store exit code */
     lock_acquire(p->p_locklock);
@@ -260,25 +263,12 @@ void sys__exit(int exitcode) {
     p->p_exited = true;
     
     /* Wake up parent if it's waiting */
-    cv_broadcast(p->p_cv, p->p_locklock);
+    cv_signal(p->p_cv, p->p_locklock);
+
+    /* Keep lock held until thread_exit to prevent parent from destroying
+     * the process structure while we're still using it */
     lock_release(p->p_locklock);
     
-    /* Close all open file descriptors */
-    if (p->fileTable != NULL) {
-        for (int i = 0; i < OPEN_MAX; i++) {
-            if (p->fileTable[i] != NULL) {
-                sys_close(i);
-            }
-        }
-    }
-    
-    /* Detach from address space */
-    struct addrspace *as = proc_getas();
-    if (as != NULL) {
-        proc_setas(NULL);
-        as_activate();
-        as_destroy(as);
-    }
     
     /* Thread exits */
     thread_exit();
