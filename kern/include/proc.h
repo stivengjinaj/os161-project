@@ -64,6 +64,10 @@ void proc_remove(pid_t pid);
 struct proc *proc_search(pid_t pid);
 #endif /* OPT_SHELL */
 
+#if OPT_SHELL
+struct proc *proc_create_fork(const char *name);
+#endif
+
 /*
  * Process structure.
  *

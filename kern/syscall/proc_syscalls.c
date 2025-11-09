@@ -63,19 +63,23 @@ sys_fork(struct trapframe *tf, pid_t *retval)
     int result = 0;
 
     /* Sanity checks */
+    KASSERT(parent != NULL);
     if (tf == NULL || retval == NULL) {
         return EINVAL;
     }
 
     /*
      * 1) Create a new process structure.
-     *    proc_create() in your tree already assigns a fresh PID and inserts
-     *    into the process table; it initializes p_cv, p_locklock, etc.
+     *    Use proc_create_fork() instead of proc_create_runprogram()
+     *    to avoid re-initializing console file descriptors.
      */
-    child = proc_create_runprogram(parent->p_name);
+    child = proc_create_fork(parent->p_name);
     if (child == NULL) {
-        return ENPROC; /* or ENOMEM; ENPROC is acceptable for "no more procs" */
+        return ENPROC; /* No more process slots available */
     }
+
+    /* Verify the child got a valid PID > 0 as per spec */
+    KASSERT(child->p_pid > 0);
 
     /* Set parent relationship (used by waitpid / ECHILD checks). */
     child->parent_pid = parent->p_pid;
@@ -87,6 +91,7 @@ sys_fork(struct trapframe *tf, pid_t *retval)
     KASSERT(parent->p_addrspace != NULL);
     result = as_copy(parent->p_addrspace, &child->p_addrspace);
     if (result) {
+        proc_remove(child->p_pid);  /* Remove from table FIRST */
         proc_destroy(child);
         return result; /* typically ENOMEM */
     }
@@ -125,6 +130,16 @@ sys_fork(struct trapframe *tf, pid_t *retval)
      */
     child_tf = kmalloc(sizeof(struct trapframe));
     if (child_tf == NULL) {
+        /* Cleanup: decrement file table refs before destroying */
+        for (int i = 0; i < OPEN_MAX; i++) {
+            if (child->fileTable[i] != NULL) {
+                lock_acquire(child->fileTable[i]->lock);
+                child->fileTable[i]->count--;
+                lock_release(child->fileTable[i]->lock);
+                child->fileTable[i] = NULL;
+            }
+        }
+        proc_remove(child->p_pid);  /* Remove from table FIRST */
         proc_destroy(child);
         return ENOMEM;
     }
@@ -140,19 +155,29 @@ sys_fork(struct trapframe *tf, pid_t *retval)
     result = thread_fork(
         parent->p_name,          /* thread name (debug) */
         child,                   /* new thread's process */
-        enter_forked_process,    /* entry function (your version taking void*) */
+        enter_forked_process,    /* entry function */
         (void *)child_tf,        /* data (the trapframe copy) */
         0                        /* unused */
     );
     if (result) {
         /* thread_fork did not consume child_tf on failure */
         kfree(child_tf);
+        /* Cleanup file table refs */
+        for (int i = 0; i < OPEN_MAX; i++) {
+            if (child->fileTable[i] != NULL) {
+                lock_acquire(child->fileTable[i]->lock);
+                child->fileTable[i]->count--;
+                lock_release(child->fileTable[i]->lock);
+                child->fileTable[i] = NULL;
+            }
+        }
+        proc_remove(child->p_pid);  /* Remove from table FIRST */
         proc_destroy(child);
         return result; /* usually ENOMEM */
     }
 
     /*
-     * 7) Parent’s return value is the child's pid.
+     * 7) Parent's return value is the child's pid.
      *    Child returns 0 from user mode (handled in enter_forked_process).
      */
     *retval = child->p_pid;
@@ -233,8 +258,23 @@ int sys_waitpid(pid_t pid, int *status, int options, int *retval) {
             return result;
     }
 
-    /* 7. Destroy the child process (reap it) */
-    proc_destroy(child);
+    /* 7. Remove from process table and destroy the process structure
+     *    The child has already cleaned up its resources in sys__exit */
+    proc_remove(pid);
+    
+    /* Now safe to destroy the process structure */
+    if (child->p_cv != NULL) {
+        cv_destroy(child->p_cv);
+        child->p_cv = NULL;
+    }
+    if (child->p_locklock != NULL) {
+        lock_destroy(child->p_locklock);
+        child->p_locklock = NULL;
+    }
+    
+    spinlock_cleanup(&child->p_lock);
+    kfree(child->p_name);
+    kfree(child);
 
     /* 8. Return child's pid */
     *retval = pid;
@@ -254,23 +294,54 @@ void sys__exit(int exitcode) {
     
     KASSERT(p != NULL);
 
-    /* Remove thread from process FIRST (before signaling parent) */
+    /* Remove thread from process FIRST - while proc is still valid */
     proc_remthread(curthread);
     
-    /* Store exit code */
+    /* Clean up process resources (address space, files, etc.) */
+    
+    /* VFS fields */
+    if (p->p_cwd) {
+        VOP_DECREF(p->p_cwd);
+        p->p_cwd = NULL;
+    }
+
+    /* VM fields */
+    if (p->p_addrspace) {
+        struct addrspace *as;
+        as = proc_setas(NULL);
+        as_deactivate();
+        as_destroy(as);
+    }
+
+    /* Close all open files */
+    for(int i = 0; i < OPEN_MAX; i++) {
+        if (p->fileTable[i] != NULL) {
+            struct openfile *of = p->fileTable[i];
+            
+            lock_acquire(of->lock);
+            of->count--;
+
+            if (of->count == 0) {
+                vfs_close(of->vn);
+                lock_release(of->lock);
+                lock_destroy(of->lock);
+                kfree(of);
+            } else {
+                lock_release(of->lock);
+            }
+
+            p->fileTable[i] = NULL;
+        }
+    }
+    
+    /* NOW mark as exited and wake parent - AFTER cleanup is done */
     lock_acquire(p->p_locklock);
     p->p_exitcode = _MKWAIT_EXIT(exitcode);
     p->p_exited = true;
-    
-    /* Wake up parent if it's waiting */
     cv_signal(p->p_cv, p->p_locklock);
-
-    /* Keep lock held until thread_exit to prevent parent from destroying
-     * the process structure while we're still using it */
     lock_release(p->p_locklock);
     
-    
-    /* Thread exits */
+    /* Thread exits - the process structure remains for waitpid */
     thread_exit();
     
     panic("thread_exit returned (should not happen)\n");
