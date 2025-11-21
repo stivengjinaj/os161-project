@@ -136,8 +136,6 @@ void proc_remove(pid_t pid) {
     }
 
     spinlock_acquire(&processTable.lock);
-	cv_destroy(processTable.proc[pid]->p_cv);
-  	lock_destroy(processTable.proc[pid]->p_locklock);
     processTable.proc[pid] = NULL;
     spinlock_release(&processTable.lock);
 }
@@ -218,110 +216,84 @@ proc_create(const char *name)
 void
 proc_destroy(struct proc *proc)
 {
-	/*
-	 * You probably want to destroy and null out much of the
-	 * process (particularly the address space) at exit time if
-	 * your wait/exit design calls for the process structure to
-	 * hang around beyond process exit. Some wait/exit designs
-	 * do, some don't.
-	*/
+    /*
+     * You probably want to destroy and null out much of the
+     * process (particularly the address space) at exit time if
+     * your wait/exit design calls for the process structure to
+     * hang around beyond process exit. Some wait/exit designs
+     * do, some don't.
+    */
 
-	KASSERT(proc != NULL);
-	KASSERT(proc != kproc);
+    KASSERT(proc != NULL);
+    KASSERT(proc != kproc);
 
-	#if OPT_SHELL
-		proc_remove(proc->p_pid);
-	#endif
+    /*
+     * We don't take p_lock in here because we must have the only
+     * reference to this structure. (Otherwise it would be
+     * incorrect to destroy it.)
+    */
 
-	/*
-	 * We don't take p_lock in here because we must have the only
-	 * reference to this structure. (Otherwise it would be
-	 * incorrect to destroy it.)
-	*/
+    /* VFS fields */
+    if (proc->p_cwd) {
+        VOP_DECREF(proc->p_cwd);
+        proc->p_cwd = NULL;
+    }
 
-	/* VFS fields */
-	if (proc->p_cwd) {
-		VOP_DECREF(proc->p_cwd);
-		proc->p_cwd = NULL;
-	}
+    /* VM fields */
+    if (proc->p_addrspace) {
+        struct addrspace *as;
 
-	/* VM fields */
-	if (proc->p_addrspace) {
-		/*
-		 * If p is the current process, remove it safely from
-		 * p_addrspace before destroying it. This makes sure
-		 * we don't try to activate the address space while
-		 * it's being destroyed.
-		 *
-		 * Also explicitly deactivate, because setting the
-		 * address space to NULL won't necessarily do that.
-		 *
-		 * (When the address space is NULL, it means the
-		 * process is kernel-only; in that case it is normally
-		 * ok if the MMU and MMU- related data structures
-		 * still refer to the address space of the last
-		 * process that had one. Then you save work if that
-		 * process is the next one to run, which isn't
-		 * uncommon. However, here we're going to destroy the
-		 * address space, so we need to make sure that nothing
-		 * in the VM system still refers to it.)
-		 *
-		 * The call to as_deactivate() must come after we
-		 * clear the address space, or a timer interrupt might
-		 * reactivate the old address space again behind our
-		 * back.
-		 *
-		 * If p is not the current process, still remove it
-		 * from p_addrspace before destroying it as a
-		 * precaution. Note that if p is not the current
-		 * process, in order to be here p must either have
-		 * never run (e.g. cleaning up after fork failed) or
-		 * have finished running and exited. It is quite
-		 * incorrect to destroy the proc structure of some
-		 * random other process while it's still running...
-		 */
-		struct addrspace *as;
+        if (proc == curproc) {
+            as = proc_setas(NULL);
+            as_deactivate();
+        }
+        else {
+            as = proc->p_addrspace;
+            proc->p_addrspace = NULL;
+        }
+        as_destroy(as);
+    }
 
-		if (proc == curproc) {
-			as = proc_setas(NULL);
-			as_deactivate();
-		}
-		else {
-			as = proc->p_addrspace;
-			proc->p_addrspace = NULL;
-		}
-		as_destroy(as);
-	}
+    KASSERT(proc->p_numthreads == 0);
+    spinlock_cleanup(&proc->p_lock);
 
-	KASSERT(proc->p_numthreads == 0);
-	spinlock_cleanup(&proc->p_lock);
+    #if OPT_SHELL
 
-	#if OPT_SHELL
+        /* Close all open files */
+        for(int i = 0; i < OPEN_MAX; i++) {
+            if (proc->fileTable[i] != NULL) {
+                struct openfile *of = proc->fileTable[i];
+                
+                lock_acquire(of->lock);
+                of->count--;
 
-		for(int i = 0; i < OPEN_MAX; i++) {
-			if (proc->fileTable[i] != NULL) {
-				struct openfile *of = proc->fileTable[i];
-				
-				lock_acquire(of->lock);
-				of->count--;
+                if (of->count == 0) {
+                    vfs_close(of->vn);
+                    lock_release(of->lock);
+                    lock_destroy(of->lock);
+                    kfree(of);
+                } else {
+                    lock_release(of->lock);
+                }
 
-				if (of->count == 0) {
-					vfs_close(of->vn);
-					lock_release(of->lock);
-					lock_destroy(of->lock);
-					kfree(of);
-				} else {
-					lock_release(of->lock);
-				}
+                proc->fileTable[i] = NULL;
+            }
+        }
 
-				proc->fileTable[i] = NULL;
-			}
-		}
+        /* Destroy synchronization primitives */
+        if (proc->p_cv != NULL) {
+            cv_destroy(proc->p_cv);
+            proc->p_cv = NULL;
+        }
+        if (proc->p_locklock != NULL) {
+            lock_destroy(proc->p_locklock);
+            proc->p_locklock = NULL;
+        }
 
-	#endif
+    #endif
 
-	kfree(proc->p_name);
-	kfree(proc);
+    kfree(proc->p_name);
+    kfree(proc);
 }
 
 /*
@@ -381,6 +353,31 @@ static int start_console(const char *lock_name, struct proc *proc, int fd, int f
 	proc->fileTable[fd] = file;
 
 	return 0;
+}
+#endif
+
+#if OPT_SHELL
+/*
+ * Create a fresh proc for use by fork.
+ * Does NOT initialize console file descriptors - those are inherited from parent.
+ */
+struct proc *
+proc_create_fork(const char *name)
+{
+    struct proc *newproc;
+
+    newproc = proc_create(name);
+    if (newproc == NULL) {
+        return NULL;
+    }
+
+    /* VM fields */
+    newproc->p_addrspace = NULL;
+
+    /* VFS fields */
+    newproc->p_cwd = NULL;  /* Will be set by fork */
+
+    return newproc;
 }
 #endif
 

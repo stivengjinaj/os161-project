@@ -34,6 +34,7 @@
 #include <cdefs.h> /* for __DEAD */
 #include "opt-shell.h"
 struct trapframe; /* from <machine/trapframe.h> */
+struct addrspace;
 
 /*
  * The system call dispatcher.
@@ -74,8 +75,11 @@ void sys__exit(int exitcode);
 
 void enter_forked_process(void *data, unsigned long unused);
 
-int exec_sys_execv(const char *program, char **args);
-
+int copy_program_name(const char *program, char **kernel_progname);
+int copy_arguments(char **args, char ***kernel_args, int *argc);
+void cleanup_arguments(char **kernel_args, int argc);
+void restore_old_address_space(struct addrspace *old_as, struct addrspace *new_as);
+int copy_args_to_stack(char **kernel_args, int argc, vaddr_t *stackptr);
 
 #endif
 

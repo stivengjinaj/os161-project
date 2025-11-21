@@ -54,111 +54,97 @@ pid_t sys_getpid() {
  *   0 on success
  *   ENOMEM  - Insufficient memory to create the new process
  */
-int
-sys_fork(struct trapframe *tf, pid_t *retval)
-{
-    struct proc *parent = curproc;
-    struct proc *child = NULL;
-    struct trapframe *child_tf = NULL;
-    int result = 0;
+int sys_fork(struct trapframe *tf, pid_t *retval) {
+    struct proc *child_proc;
+    struct trapframe *child_tf;
+    int result;
 
-    /* Sanity checks */
-    if (tf == NULL || retval == NULL) {
-        return EINVAL;
+    /* ASSERTING CURRENT PROCESS TO ACTUALLY EXIST */
+    KASSERT(curproc != NULL);
+
+    /* Create a new process */
+    child_proc = proc_create_fork(curproc->p_name);
+    if (child_proc == NULL) {
+        return ENPROC;  /* No available PID */
     }
 
-    /*
-     * 1) Create a new process structure.
-     *    proc_create() in your tree already assigns a fresh PID and inserts
-     *    into the process table; it initializes p_cv, p_locklock, etc.
-     */
-    child = proc_create_runprogram(parent->p_name);
-    if (child == NULL) {
-        return ENPROC; /* or ENOMEM; ENPROC is acceptable for "no more procs" */
-    }
+    /* Set parent relationship */
+    child_proc->parent_pid = curproc->p_pid;
 
-    /* Set parent relationship (used by waitpid / ECHILD checks). */
-    child->parent_pid = parent->p_pid;
-
-    /*
-     * 2) Copy address space.
-     *    Each process must have an independent addrspace.
-     */
-    KASSERT(parent->p_addrspace != NULL);
-    result = as_copy(parent->p_addrspace, &child->p_addrspace);
+    /* Copy the address space */
+    result = as_copy(curproc->p_addrspace, &child_proc->p_addrspace);
     if (result) {
-        proc_destroy(child);
-        return result; /* typically ENOMEM */
+        proc_remove(child_proc->p_pid);
+        proc_destroy(child_proc);
+        return result; /* Address space copy failed */
     }
 
-    /*
-     * 3) Duplicate current working directory (bump refcount).
-     */
-    spinlock_acquire(&parent->p_lock);
-    if (parent->p_cwd != NULL) {
-        VOP_INCREF(parent->p_cwd);
-        child->p_cwd = parent->p_cwd;
+    /* Duplicate current working directory */
+    spinlock_acquire(&curproc->p_lock);
+    if (curproc->p_cwd != NULL) {
+        VOP_INCREF(curproc->p_cwd);
+        child_proc->p_cwd = curproc->p_cwd;
     }
-    spinlock_release(&parent->p_lock);
+    spinlock_release(&curproc->p_lock);
 
-    /*
-     * 4) Duplicate file table entries:
-     *    Share openfile objects; increment their refcount under the lock.
-     *    This matches the fork semantics: tables are independent, objects shared.
-     */
+    /* Duplicate file table entries */
     for (int i = 0; i < OPEN_MAX; i++) {
-        struct openfile *of = parent->fileTable[i];
-        if (of != NULL) {
-            /* Share pointer and bump reference count safely */
+        if (curproc->fileTable[i] != NULL) {
+            struct openfile *of = curproc->fileTable[i];
             lock_acquire(of->lock);
             of->count++;
             lock_release(of->lock);
-            child->fileTable[i] = of;
-        } else {
-            child->fileTable[i] = NULL;
+            child_proc->fileTable[i] = of;
         }
     }
 
-    /*
-     * 5) Snapshot trapframe for the child.
-     *    We allocate a kernel copy that enter_forked_process will consume.
-     */
+    /* Copy the trapframe for the child */
     child_tf = kmalloc(sizeof(struct trapframe));
     if (child_tf == NULL) {
-        proc_destroy(child);
+        /* Cleanup file table */
+        for (int i = 0; i < OPEN_MAX; i++) {
+            if (child_proc->fileTable[i] != NULL) {
+                lock_acquire(child_proc->fileTable[i]->lock);
+                child_proc->fileTable[i]->count--;
+                lock_release(child_proc->fileTable[i]->lock);
+                child_proc->fileTable[i] = NULL;
+            }
+        }
+        proc_remove(child_proc->p_pid);
+        proc_destroy(child_proc);
         return ENOMEM;
     }
-    *child_tf = *tf; /* struct copy */
+    *child_tf = *tf;
 
-    /*
-     * 6) Create the child thread.
-     *    The child thread will:
-     *      - activate its address space,
-     *      - set v0=0, a3=0, advance epc,
-     *      - enter usermode via mips_usermode() in enter_forked_process.
-     */
+    /* Create a new thread for the child process */
     result = thread_fork(
-        parent->p_name,          /* thread name (debug) */
-        child,                   /* new thread's process */
-        enter_forked_process,    /* entry function (your version taking void*) */
-        (void *)child_tf,        /* data (the trapframe copy) */
-        0                        /* unused */
+        curthread->t_name,
+        child_proc,
+        enter_forked_process,
+        (void *)child_tf,
+        0
     );
     if (result) {
-        /* thread_fork did not consume child_tf on failure */
         kfree(child_tf);
-        proc_destroy(child);
-        return result; /* usually ENOMEM */
+        /* Cleanup file table */
+        for (int i = 0; i < OPEN_MAX; i++) {
+            if (child_proc->fileTable[i] != NULL) {
+                lock_acquire(child_proc->fileTable[i]->lock);
+                child_proc->fileTable[i]->count--;
+                lock_release(child_proc->fileTable[i]->lock);
+                child_proc->fileTable[i] = NULL;
+            }
+        }
+        proc_remove(child_proc->p_pid);
+        proc_destroy(child_proc);
+        return result;
     }
 
-    /*
-     * 7) Parent’s return value is the child's pid.
-     *    Child returns 0 from user mode (handled in enter_forked_process).
-     */
-    *retval = child->p_pid;
+    /* Return the child PID to the parent */
+    *retval = child_proc->p_pid;
+
     return 0;
 }
-
 
 /* sys_execv - Execute a new program
  *
@@ -177,9 +163,88 @@ sys_fork(struct trapframe *tf, pid_t *retval)
  *   E2BIG   - Argument list too long
  */
 int sys_execv(const char *program, char **args) {
+    struct vnode *v;
+    vaddr_t entrypoint, stackptr;
+    struct addrspace *new_as, *old_as;
+    char **kernel_args = NULL;
+    char *kernel_progname = NULL;
+    int argc = 0, result;
 
-    return exec_sys_execv(program, args);
+    /* Validate input arguments */
+    if (!program || !args) {
+        return EFAULT;
+    }
 
+    /* Copy program name from user space */
+    result = copy_program_name(program, &kernel_progname);
+    if (result) return result;
+
+    /* Copy arguments from user space */
+    result = copy_arguments(args, &kernel_args, &argc);
+    if (result) {
+        kfree(kernel_progname);
+        return result;
+    }
+
+    /* Open the executable file */
+    result = vfs_open(kernel_progname, O_RDONLY, 0, &v);
+    if (result) {
+        cleanup_arguments(kernel_args, argc);
+        kfree(kernel_progname);
+        return result;
+    }
+
+    /* Create new address space */
+    new_as = as_create();
+    if (!new_as) {
+        vfs_close(v);
+        cleanup_arguments(kernel_args, argc);
+        kfree(kernel_progname);
+        return ENOMEM;
+    }
+
+    /* Switch to new address space */
+    old_as = proc_setas(new_as);
+    as_activate();
+
+    /* Load the executable */
+    result = load_elf(v, &entrypoint);
+    if (result) {
+        restore_old_address_space(old_as, new_as);
+        vfs_close(v);
+        cleanup_arguments(kernel_args, argc);
+        kfree(kernel_progname);
+        return result;
+    }
+    vfs_close(v);
+
+    /* Define user stack */
+    result = as_define_stack(new_as, &stackptr);
+    if (result) {
+        restore_old_address_space(old_as, new_as);
+        cleanup_arguments(kernel_args, argc);
+        kfree(kernel_progname);
+        return result;
+    }
+
+    /* Copy arguments to user stack */
+    result = copy_args_to_stack(kernel_args, argc, &stackptr);
+    if (result) {
+        restore_old_address_space(old_as, new_as);
+        cleanup_arguments(kernel_args, argc);
+        kfree(kernel_progname);
+        return result;
+    }
+
+    /* Cleanup before executing */
+    cleanup_arguments(kernel_args, argc);
+    kfree(kernel_progname);
+
+    /* Execute new process */
+    enter_new_process(argc, (userptr_t)stackptr, NULL, stackptr, entrypoint);
+
+    panic("enter_new_process returned unexpectedly!");
+    return EINVAL;
 }
 
 /* sys_waitpid - Wait for a specific child process to exit
@@ -224,19 +289,40 @@ int sys_waitpid(pid_t pid, int *status, int options, int *retval) {
         cv_wait(child->p_cv, child->p_locklock);
     }
     int exitcode = child->p_exitcode;
+    
+    /* 6. Wait until child thread count is 0 (child has fully exited) */
+    while (child->p_numthreads > 0) {
+        lock_release(child->p_locklock);
+        thread_yield(); /* Give child thread time to fully exit */
+        lock_acquire(child->p_locklock);
+    }
     lock_release(child->p_locklock);
 
-    /* 6. Copy exit status to user space, if requested */
+    /* 7. Copy exit status to user space, if requested */
     if (status != NULL) {
         int result = copyout(&exitcode, (userptr_t)status, sizeof(int));
         if (result)
             return result;
     }
 
-    /* 7. Destroy the child process (reap it) */
-    proc_destroy(child);
+    /* 8. Now safe to remove from process table and destroy */
+    proc_remove(pid);
+    
+    /* Destroy synchronization primitives */
+    if (child->p_cv != NULL) {
+        cv_destroy(child->p_cv);
+        child->p_cv = NULL;
+    }
+    if (child->p_locklock != NULL) {
+        lock_destroy(child->p_locklock);
+        child->p_locklock = NULL;
+    }
+    
+    spinlock_cleanup(&child->p_lock);
+    kfree(child->p_name);
+    kfree(child);
 
-    /* 8. Return child's pid */
+    /* 9. Return child's pid */
     *retval = pid;
     return 0;
 }
@@ -253,22 +339,53 @@ void sys__exit(int exitcode) {
     struct proc *p = curproc;
     
     KASSERT(p != NULL);
-
-    /* Remove thread from process FIRST (before signaling parent) */
-    proc_remthread(curthread);
     
-    /* Store exit code */
+    /* Clean up process resources (address space, files, etc.) */
+    
+    /* VFS fields */
+    if (p->p_cwd) {
+        VOP_DECREF(p->p_cwd);
+        p->p_cwd = NULL;
+    }
+
+    /* VM fields - must happen before proc_remthread */
+    if (p->p_addrspace) {
+        struct addrspace *as;
+        as = proc_setas(NULL);
+        as_deactivate();
+        as_destroy(as);
+    }
+
+    /* Close all open files */
+    for(int i = 0; i < OPEN_MAX; i++) {
+        if (p->fileTable[i] != NULL) {
+            struct openfile *of = p->fileTable[i];
+            
+            lock_acquire(of->lock);
+            of->count--;
+
+            if (of->count == 0) {
+                vfs_close(of->vn);
+                lock_release(of->lock);
+                lock_destroy(of->lock);
+                kfree(of);
+            } else {
+                lock_release(of->lock);
+            }
+
+            p->fileTable[i] = NULL;
+        }
+    }
+    
+    /* Mark as exited and wake parent - BEFORE removing thread */
     lock_acquire(p->p_locklock);
     p->p_exitcode = _MKWAIT_EXIT(exitcode);
     p->p_exited = true;
-    
-    /* Wake up parent if it's waiting */
     cv_signal(p->p_cv, p->p_locklock);
-
-    /* Keep lock held until thread_exit to prevent parent from destroying
-     * the process structure while we're still using it */
     lock_release(p->p_locklock);
     
+    /* Remove thread from process */
+    proc_remthread(curthread);
     
     /* Thread exits */
     thread_exit();
