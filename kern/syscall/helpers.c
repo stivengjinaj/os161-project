@@ -59,10 +59,22 @@ int copy_program_name(const char *program, char **kernel_progname) {
 int copy_arguments(char **args, char ***kernel_args, int *argc) {
     int i, result;
     size_t actual;
+    char *user_argptr;
     
-    /* Count arguments */
+    /* Count arguments by reading pointers from user space */
     *argc = 0;
-    while (args[*argc] != NULL) {
+    while (1) {
+        /* Read pointer from user space array */
+        result = copyin((const_userptr_t)(args + *argc), &user_argptr, sizeof(char *));
+        if (result) {
+            return result;
+        }
+        
+        /* NULL pointer marks end of array */
+        if (user_argptr == NULL) {
+            break;
+        }
+        
         (*argc)++;
         if (*argc > ARG_MAX) {
             return E2BIG;
@@ -82,17 +94,25 @@ int copy_arguments(char **args, char ***kernel_args, int *argc) {
     
     /* Copy each argument string */
     for (i = 0; i < *argc; i++) {
+        /* Read the pointer to the i-th argument */
+        result = copyin((const_userptr_t)(args + i), &user_argptr, sizeof(char *));
+        if (result) {
+            cleanup_arguments(*kernel_args, *argc);
+            *kernel_args = NULL;
+            return result;
+        }
+        
+        /* Allocate space for the argument string */
         (*kernel_args)[i] = kmalloc(PATH_MAX);
         if ((*kernel_args)[i] == NULL) {
-            /* Cleanup already allocated args */
             cleanup_arguments(*kernel_args, *argc);
             *kernel_args = NULL;
             return ENOMEM;
         }
         
-        result = copyinstr((const_userptr_t)args[i], (*kernel_args)[i], PATH_MAX, &actual);
+        /* Copy the string from user space */
+        result = copyinstr((const_userptr_t)user_argptr, (*kernel_args)[i], PATH_MAX, &actual);
         if (result) {
-            /* Cleanup on error */
             cleanup_arguments(*kernel_args, *argc);
             *kernel_args = NULL;
             return result;
