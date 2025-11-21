@@ -70,6 +70,7 @@ pid_t sys_getpid(void);
 int sys_fork(struct trapframe *tf, pid_t *retval);
 int sys_execv(const char *program, char **args);
 int sys_waitpid(pid_t pid, int *status, int options, int *retval);
+int sys_remove(const char *path);
 void sys__exit(int exitcode);
 
 
