@@ -189,7 +189,7 @@ test_multiple_writes(void)
 int
 main(void)
 {
-    printf("Write System Call Test Suite\n");
+    printf("write System Call Test Suite\n");
     
     test_write_stdout();
     test_write_file();
@@ -198,7 +198,7 @@ main(void)
     test_write_readonly_file();
     test_multiple_writes();
     
-    printf("Test Summary:\n");
+    printf("write Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);

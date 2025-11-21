@@ -367,7 +367,7 @@ main(void)
     test_open_trunc();
     test_fd_allocation_order();
     
-    printf("Test Summary:\n");
+    printf("open Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);

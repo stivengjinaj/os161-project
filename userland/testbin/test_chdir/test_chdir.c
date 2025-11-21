@@ -6,6 +6,8 @@ int main(void) {
     const char *new_dir = "/testbin";
     int result = chdir(new_dir);
 
+    printf("chdir Test Summary:\n");
+
     if (result == 0) {
         printf("Directory successfully changed to %s\n", new_dir);
     } else {

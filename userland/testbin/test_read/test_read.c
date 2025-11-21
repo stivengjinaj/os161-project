@@ -266,7 +266,7 @@ test_read_eof(void)
 int
 main(void)
 {
-    printf("Read System Call Tests\n");
+    printf("read System Call Tests\n");
     
     test_read_file();
     test_read_invalid_fd();
@@ -275,7 +275,7 @@ main(void)
     test_multiple_reads();
     test_read_eof();
     
-    printf("Test Summary:\n");
+    printf("read Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);

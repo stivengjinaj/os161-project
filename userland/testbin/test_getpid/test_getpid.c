@@ -96,7 +96,7 @@ main(void)
     test_getpid_positive();
     //test_getpid_uniqueness();
     
-    printf("Test Summary:\n");
+    printf("getpid Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);

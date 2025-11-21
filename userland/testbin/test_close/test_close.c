@@ -247,7 +247,7 @@ main(void)
     test_operations_after_close();
     test_close_multiple();
     
-    printf("Test Summary:\n");
+    printf("Close Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);

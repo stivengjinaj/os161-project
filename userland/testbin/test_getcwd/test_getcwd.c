@@ -20,6 +20,7 @@ main(void)
 	if (p == NULL) {
 		err(1, ".");
 	}
+	printf("getcwd Test Summary:\n");
     printf("P: %c\n", *p);
 	printf("CWD: %s\n", buf);
 	return 0;

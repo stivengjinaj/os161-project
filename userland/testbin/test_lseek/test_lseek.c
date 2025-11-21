@@ -16,7 +16,7 @@ main(void)
     off_t pos;
     int result;
 
-    printf("LSeek System Call Tests\n");
+    printf("lseek Test Summary\n");
 
     /* Create and write to test file */
     fd = open(TEST_FILE, O_RDWR | O_CREAT | O_TRUNC, 0644);

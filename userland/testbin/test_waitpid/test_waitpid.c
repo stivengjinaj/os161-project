@@ -393,7 +393,7 @@ main(void)
     test_waitpid_invalid_options();
     test_waitpid_double_wait();
     
-    printf("\nTest Summary:\n");
+    printf("waitpid Test Summary:\n");
     printf("=============\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);

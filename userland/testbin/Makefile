@@ -13,6 +13,7 @@ SUBDIRS=add argtest badcall bigexec bigfile bigfork bigseek bloat conman \
 	sbrktest schedpong sort sparsefile tail tictac triplehuge \
 	triplemat triplesort usemtest zero
 
+SUBDIRS+=test_all
 SUBDIRS+=test_open
 SUBDIRS+=test_read
 SUBDIRS+=test_write

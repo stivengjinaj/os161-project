@@ -278,7 +278,7 @@ main(void)
     test_dup2_closes_newfd();
     test_dup2_stdio();
     
-    printf("Test Summary:\n");
+    printf("dup2 Test Summary:\n");
     printf("Passed: %d\n", tests_passed);
     printf("Failed: %d\n", tests_failed);
     printf("Total:  %d\n", tests_passed + tests_failed);
