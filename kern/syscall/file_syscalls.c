@@ -26,6 +26,30 @@
 #if OPT_SHELL
 
 /*
+ * sys_remove - Remove a file. Implemented for testing purposes.
+ */
+int sys_remove(const char *path) {
+    int result;
+    char kbuffer[PATH_MAX];
+    size_t len;
+
+    /* Validate input path */
+    if (path == NULL) {
+        return EFAULT;
+    }
+
+    /* Copy path from user space to kernel space */
+    result = copyinstr((const_userptr_t)path, kbuffer, PATH_MAX, &len);
+    if (result) {
+        return result;
+    }
+
+    /* Call VFS to remove the file */
+    result = vfs_remove(kbuffer);
+    return result;
+}
+
+/*
  * sys_write - Write data to a file descriptor
  *
  *   Writes up to buflen bytes from the buffer buf to the file referenced 
