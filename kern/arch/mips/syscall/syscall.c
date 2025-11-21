@@ -194,6 +194,9 @@ syscall(struct trapframe *tf)
 			/* sys__exit does not return */
 			panic("sys__exit returned\n");
 			break;
+		case SYS_remove:
+			err = sys_remove((const char *)tf->tf_a0);
+			break;
 #endif
 
 	    default:
